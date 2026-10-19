@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="108" fill="#000000" />
+  <text 
+    x="50%" 
+    y="53%" 
+    dominant-baseline="central" 
+    text-anchor="middle" 
+    font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" 
+    font-weight="900" 
+    font-size="220" 
+    letter-spacing="-8"
+  >
+    <tspan fill="#FFFFFF">10</tspan><tspan fill="#10B981">X</tspan>
+  </text>
+</svg>
