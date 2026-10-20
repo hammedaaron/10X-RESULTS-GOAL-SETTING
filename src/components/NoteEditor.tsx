@@ -131,8 +131,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             type="text"
             value={title}
             onChange={handleTitleChange}
-            placeholder="Click to name your goal..."
-            className={`w-full text-2xl md:text-3xl font-bold bg-transparent outline-none ${theme.textPrimary} placeholder:opacity-30 border-b border-transparent hover:border-neutral-500/30 focus:border-blue-500 transition-colors pb-1 pr-8`}
+            placeholder="Goal title..."
+            className={`w-full text-2xl md:text-3xl font-bold bg-transparent outline-none ${theme.textPrimary} placeholder:opacity-30 border-b border-transparent hover:border-neutral-500/30 focus:border-blue-500 transition-colors pb-1`}
           />
         </div>
 

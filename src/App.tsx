@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Menu, Plus, Check, Target, Swords, Edit3, X } from 'lucide-react';
+import { Menu, Plus, Check, Target, Swords, Edit3, X, ArrowLeft, Table as TableIcon, LayoutList } from 'lucide-react';
 import { GoalNote, UserSettings, GoalSessionLog, BattlePlanItem, GoalStatus } from './types';
 import {
   loadStoredGoals,
@@ -11,9 +11,16 @@ import { calculateConsistencyStats } from './utils/consistency';
 import { THEME_CONFIGS } from './utils/theme';
 import { NoteEditor } from './components/NoteEditor';
 import { BattlePlanEditor } from './components/BattlePlanEditor';
+import { TenXGoalEditor } from './components/TenXGoalEditor';
+import { TenXGoalsView } from './components/TenXGoalsView';
+import { TodaysGoalsView } from './components/TodaysGoalsView';
 import { HamburgerMenu, ActiveDrawerTab } from './components/HamburgerMenu';
 import { MainOverlayView } from './components/MainOverlayView';
 import { BrandLogo } from './components/BrandLogo';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { OfflineIndicator } from './components/OfflineIndicator';
+
+export type AppMainView = 'todays_goals' | 'today_editor' | 'tenx_goals' | 'tenx_editor';
 
 export default function App() {
   const [goals, setGoals] = useState<GoalNote[]>(() => loadStoredGoals());
@@ -27,7 +34,9 @@ export default function App() {
   const [isHamburgerOpen, setIsHamburgerOpen] = useState(false);
   const [activeOverlayTab, setActiveOverlayTab] = useState<ActiveDrawerTab>(null);
   const [lastSavedNotice, setLastSavedNotice] = useState(false);
-  const [showNewMenu, setShowNewMenu] = useState(false);
+  const [currentMainView, setCurrentMainView] = useState<AppMainView>('todays_goals');
+  const [homeViewMode, setHomeViewMode] = useState<'tabular' | 'list'>('tabular');
+  const [tenXViewMode, setTenXViewMode] = useState<'tabular' | 'list'>('tabular');
   const [isEditingHeaderTitle, setIsEditingHeaderTitle] = useState(false);
   const [headerTitleDraft, setHeaderTitleDraft] = useState('');
 
@@ -89,7 +98,10 @@ export default function App() {
   // Handlers
   const handleUpdateGoal = useCallback((updatedGoal: GoalNote) => {
     setGoals((prev) => {
-      const next = prev.map((g) => (g.id === updatedGoal.id ? updatedGoal : g));
+      const exists = prev.some((g) => g.id === updatedGoal.id);
+      const next = exists
+        ? prev.map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
+        : [updatedGoal, ...prev];
       saveStoredGoals(next);
       return next;
     });
@@ -112,7 +124,7 @@ export default function App() {
     const newGoal: GoalNote = {
       id: newGoalId,
       type: 'goal',
-      title: 'Untitled Goal',
+      title: '',
       month: targetMonth,
       monthKey: yearMonthKey,
       createdAt: now.toISOString(),
@@ -133,9 +145,9 @@ export default function App() {
       return next;
     });
     setActiveGoalId(newGoalId);
+    setCurrentMainView('today_editor');
     setActiveOverlayTab(null);
     setIsHamburgerOpen(false);
-    setShowNewMenu(false);
   }, []);
 
   // Clean battle plan creation: clean empty checklist sheet, ready for user tasks
@@ -176,9 +188,61 @@ export default function App() {
       return next;
     });
     setActiveGoalId(newPlanId);
+    setCurrentMainView('today_editor');
     setActiveOverlayTab(null);
     setIsHamburgerOpen(false);
-    setShowNewMenu(false);
+  }, []);
+
+  // Clean 10X Moonshot goal creation
+  const handleCreateTenXGoal = useCallback(() => {
+    const now = new Date();
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const defaultMonth = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+    const yearMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const newId = `tenx-${Date.now()}`;
+    const newTenXGoal: GoalNote = {
+      id: newId,
+      type: 'tenx_goal',
+      isMoonshot: true,
+      title: '',
+      month: defaultMonth,
+      monthKey: yearMonthKey,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      progress: 0,
+      status: 'in_progress',
+      category: '10X Moonshot',
+      sessionsLog: [],
+      contentHtml: '',
+      plainText: '',
+      battlePlanItems: [
+        {
+          id: 'bpi-0',
+          text: 'Define 10X moonshot vision and non-negotiable standards',
+          completed: false,
+        },
+        {
+          id: 'bpi-1',
+          text: 'Execute initial bold action towards objective',
+          completed: false,
+        },
+      ],
+      deletedAt: null,
+    };
+
+    setGoals((prev) => {
+      const next = [newTenXGoal, ...prev];
+      saveStoredGoals(next);
+      return next;
+    });
+    setActiveGoalId(newId);
+    setCurrentMainView('tenx_editor');
+    setActiveOverlayTab(null);
+    setIsHamburgerOpen(false);
   }, []);
 
   // Apply template from documentation in settings
@@ -216,6 +280,7 @@ export default function App() {
         return next;
       });
       setActiveGoalId(newId);
+      setCurrentMainView('today_editor');
       setActiveOverlayTab(null);
     },
     []
@@ -327,9 +392,7 @@ export default function App() {
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (showNewMenu) {
-          setShowNewMenu(false);
-        } else if (isEditingHeaderTitle) {
+        if (isEditingHeaderTitle) {
           setIsEditingHeaderTitle(false);
         } else if (activeOverlayTab) {
           setActiveOverlayTab(null);
@@ -340,7 +403,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [showNewMenu, isEditingHeaderTitle, activeOverlayTab, isHamburgerOpen]);
+  }, [isEditingHeaderTitle, activeOverlayTab, isHamburgerOpen]);
 
   const isOverlayOpen = activeOverlayTab !== null || isHamburgerOpen;
 
@@ -348,164 +411,294 @@ export default function App() {
     <div
       className={`h-screen w-screen flex flex-col overflow-hidden select-none ${currentTheme.bgApp} ${currentTheme.textPrimary} transition-colors duration-150 relative`}
     >
-      {/* Minimalist Top Strip: Just Hamburger Menu Button, Editable Title, & Plus Menu */}
+      {/* Single Clean Top Navigation Bar */}
       <header
-        className={`h-10 px-4 flex items-center justify-between border-b ${currentTheme.border} ${currentTheme.bgSurface} shrink-0 select-none z-20`}
+        className={`h-11 px-4 flex items-center justify-between border-b ${currentTheme.border} ${currentTheme.bgSurface} shrink-0 select-none z-20`}
       >
-        {/* Left: The Hamburger Menu Button + 10X Brand Badge */}
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={() => setIsHamburgerOpen(true)}
-            className={`p-1.5 rounded-md hover:bg-neutral-500/15 ${currentTheme.textPrimary} transition-colors flex items-center gap-2`}
-            title="Open Menu: Today's Goal, Calendar, KPI Tab, Settings"
-          >
-            <Menu className="w-5 h-5" />
-            <span className="text-xs font-semibold hidden sm:inline">Menu</span>
-          </button>
-
-          <button
-            onClick={() => setIsHamburgerOpen(true)}
-            className="hover:opacity-85 transition-opacity"
-            title="10X RESULTS"
-          >
-            <BrandLogo size="sm" showText={false} />
-          </button>
-
-          {/* Editable Title in Header */}
-          <div className="flex items-center gap-2">
-            {isEditingHeaderTitle && activeGoal ? (
-              <div className="flex items-center gap-1">
-                <input
-                  type="text"
-                  value={headerTitleDraft}
-                  onChange={(e) => setHeaderTitleDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSaveHeaderTitle();
-                    if (e.key === 'Escape') setIsEditingHeaderTitle(false);
-                  }}
-                  autoFocus
-                  className={`text-xs px-2 py-0.5 rounded border border-blue-500 bg-transparent outline-none ${currentTheme.textPrimary}`}
-                />
-                <button
-                  onClick={handleSaveHeaderTitle}
-                  className="p-1 text-emerald-400 hover:bg-neutral-500/10 rounded"
-                >
-                  <Check className="w-3 h-3" />
-                </button>
-                <button
-                  onClick={() => setIsEditingHeaderTitle(false)}
-                  className="p-1 text-neutral-400 hover:bg-neutral-500/10 rounded"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            ) : (
+        {currentMainView === 'todays_goals' ? (
+          <>
+            {/* Left: Hamburger Menu Button + Brand Logo + Title */}
+            <div className="flex items-center gap-2.5">
               <button
-                onClick={() => setIsEditingHeaderTitle(true)}
-                className={`text-xs ${currentTheme.textMuted} hover:${currentTheme.textPrimary} truncate max-w-[180px] sm:max-w-md flex items-center gap-1.5 group text-left transition-colors`}
-                title="Click to edit title"
+                onClick={() => setIsHamburgerOpen(true)}
+                className={`p-1.5 rounded-md hover:bg-neutral-500/15 ${currentTheme.textPrimary} transition-colors flex items-center gap-2 cursor-pointer`}
+                title="Menu"
+                aria-label="Menu"
               >
-                <span className="truncate">
-                  {activeGoal ? activeGoal.title : '10X RESULTS'}
-                </span>
-                {activeGoal && (
-                  <span
-                    className={`text-[10px] px-1 rounded uppercase font-semibold ${
-                      activeGoal.type === 'battle_plan'
-                        ? 'text-amber-400 bg-amber-500/15'
-                        : 'text-blue-400 bg-blue-500/15'
-                    }`}
-                  >
-                    {activeGoal.type === 'battle_plan' ? 'Battle Plan' : 'Goal'}
-                  </span>
-                )}
-                <Edit3 className="w-3 h-3 opacity-0 group-hover:opacity-60 transition-opacity" />
+                <Menu className="w-5 h-5" />
               </button>
-            )}
-          </div>
-        </div>
 
-        {/* Right: Quick subtle indicators + Plus Button with Popover */}
-        <div className="flex items-center gap-3 text-xs relative">
-          {lastSavedNotice && (
-            <span className="text-emerald-400 text-[11px] flex items-center gap-1">
-              <Check className="w-3 h-3" />
-              Saved
-            </span>
-          )}
+              <BrandLogo size="sm" showText={true} />
 
-          {/* Plus Button with 2 Options: New Goal or Battle Plan */}
-          <div className="relative">
-            <button
-              onClick={() => setShowNewMenu(!showNewMenu)}
-              className={`p-1.5 rounded flex items-center gap-1 bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-xs transition-colors`}
-              title="Create New Goal or Battle Plan"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline text-xs">New</span>
-            </button>
+              <span className={`text-xs font-semibold ${currentTheme.textMuted} border-l ${currentTheme.border} pl-2.5 ml-1 hidden sm:inline`}>
+                Today's Goals
+              </span>
+            </div>
 
-            {/* The 2-Option Popover Menu */}
-            {showNewMenu && (
-              <div
-                className={`absolute right-0 top-full mt-1.5 w-48 rounded-xl border shadow-2xl p-1.5 z-50 ${currentTheme.bgSurface} ${currentTheme.border} animate-fadeIn`}
-              >
+            {/* Right: PWA Install + View Mode Toggle (Grid/List) + Plus Button */}
+            <div className="flex items-center gap-2">
+              <PWAInstallButton variant="compact" />
+
+              <div className={`flex items-center border ${currentTheme.border} rounded-lg p-0.5 ${currentTheme.bgSubtle}`}>
                 <button
-                  onClick={() => handleCreateGoal()}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg ${currentTheme.bgHover} ${currentTheme.textPrimary} text-left transition-colors`}
+                  onClick={() => setHomeViewMode('tabular')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    homeViewMode === 'tabular'
+                      ? 'bg-neutral-500/20 text-blue-400'
+                      : `${currentTheme.textMuted} hover:${currentTheme.textPrimary}`
+                  }`}
+                  title="Grid View"
+                  aria-label="Grid View"
                 >
-                  <Target className="w-4 h-4 text-blue-400 shrink-0" />
-                  <div>
-                    <div className="font-semibold">New Goal</div>
-                    <div className="text-[10px] text-neutral-400">Clean text document</div>
-                  </div>
+                  <TableIcon className="w-4 h-4" />
                 </button>
-
                 <button
-                  onClick={() => handleCreateBattlePlan()}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-lg ${currentTheme.bgHover} ${currentTheme.textPrimary} text-left transition-colors`}
+                  onClick={() => setHomeViewMode('list')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    homeViewMode === 'list'
+                      ? 'bg-neutral-500/20 text-blue-400'
+                      : `${currentTheme.textMuted} hover:${currentTheme.textPrimary}`
+                  }`}
+                  title="List View"
+                  aria-label="List View"
                 >
-                  <Swords className="w-4 h-4 text-amber-400 shrink-0" />
-                  <div>
-                    <div className="font-semibold">Battle Plan</div>
-                    <div className="text-[10px] text-neutral-400">Interactive checklist objectives</div>
-                  </div>
+                  <LayoutList className="w-4 h-4" />
                 </button>
               </div>
-            )}
-          </div>
-        </div>
+
+              <button
+                onClick={() => handleCreateGoal()}
+                className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center shadow-xs transition-colors cursor-pointer"
+                title="Write Today's Goal"
+                aria-label="Write Today's Goal"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </>
+        ) : currentMainView === 'today_editor' ? (
+          <>
+            {/* Left: Single Backward Arrow to return to Today's Goals + Brand */}
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => setCurrentMainView('todays_goals')}
+                className={`p-1.5 rounded-md hover:bg-neutral-500/15 ${currentTheme.textPrimary} transition-colors flex items-center justify-center cursor-pointer`}
+                title="Back to Today's Goals"
+                aria-label="Back to Today's Goals"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              <BrandLogo size="sm" showText={false} />
+
+              {activeGoal?.title && (
+                <span className={`text-xs ${currentTheme.textMuted} truncate max-w-[200px] sm:max-w-md font-semibold`}>
+                  {activeGoal.title}
+                </span>
+              )}
+            </div>
+
+            {/* Right: Saved Indicator + Menu */}
+            <div className="flex items-center gap-2.5">
+              {lastSavedNotice && (
+                <span className="text-emerald-400 text-[11px] flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  Saved
+                </span>
+              )}
+
+              <button
+                onClick={() => setIsHamburgerOpen(true)}
+                className={`p-1.5 rounded-md hover:bg-neutral-500/15 ${currentTheme.textPrimary} transition-colors cursor-pointer`}
+                title="Menu"
+                aria-label="Menu"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+            </div>
+          </>
+        ) : currentMainView === 'tenx_goals' ? (
+          <>
+            {/* Left: Single Backward Arrow (returns to Today's Goals main page) + 10X Logo */}
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => setCurrentMainView('todays_goals')}
+                className={`p-1.5 rounded-md hover:bg-neutral-500/15 ${currentTheme.textPrimary} transition-colors flex items-center justify-center cursor-pointer`}
+                title="Back to Today's Goals"
+                aria-label="Back to Today's Goals"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              <div className="w-7 h-7 rounded-md bg-black border border-emerald-500/40 flex items-center justify-center shadow-xs">
+                <span className="font-black text-xs">
+                  <span className="text-white">10</span>
+                  <span className="text-emerald-400">X</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Right: Grid/List Toggle + Plus Button */}
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center border ${currentTheme.border} rounded-lg p-0.5 ${currentTheme.bgSubtle}`}>
+                <button
+                  onClick={() => setTenXViewMode('tabular')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    tenXViewMode === 'tabular'
+                      ? 'bg-neutral-500/20 text-emerald-400'
+                      : `${currentTheme.textMuted} hover:${currentTheme.textPrimary}`
+                  }`}
+                  title="Grid View"
+                  aria-label="Grid View"
+                >
+                  <TableIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setTenXViewMode('list')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    tenXViewMode === 'list'
+                      ? 'bg-neutral-500/20 text-emerald-400'
+                      : `${currentTheme.textMuted} hover:${currentTheme.textPrimary}`
+                  }`}
+                  title="List View"
+                  aria-label="List View"
+                >
+                  <LayoutList className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                onClick={handleCreateTenXGoal}
+                className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center shadow-xs transition-colors cursor-pointer"
+                title="New 10X Goal"
+                aria-label="New 10X Goal"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </>
+        ) : (
+          /* currentMainView === 'tenx_editor': ONLY ONE BACKWARD NAVIGATION PANE, IN SUCCESSION TO 10X LIST */
+          <>
+            {/* Left: Backward Arrow returning to 10X Goals List Page + 10X Logo (Zero Clutter) */}
+            <div className="flex items-center gap-2.5">
+              <button
+                onClick={() => setCurrentMainView('tenx_goals')}
+                className={`p-1.5 rounded-md hover:bg-neutral-500/15 ${currentTheme.textPrimary} transition-colors flex items-center justify-center cursor-pointer`}
+                title="Back to 10X Goals"
+                aria-label="Back to 10X Goals"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              <div className="w-7 h-7 rounded-md bg-black border border-emerald-500/40 flex items-center justify-center shadow-xs">
+                <span className="font-black text-xs">
+                  <span className="text-white">10</span>
+                  <span className="text-emerald-400">X</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Right: Only subtle saved checkmark, no clutter */}
+            <div className="flex items-center gap-2.5">
+              {lastSavedNotice && (
+                <span className="text-emerald-400 text-[11px] flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  Saved
+                </span>
+              )}
+            </div>
+          </>
+        )}
       </header>
 
-      {/* Main Interface: Pure Text Panel Alone (Goal Document) OR Battle Plan Interface */}
+      {/* Main Interface: Today's Goals list as default home, or writing views, or 10X Goals views */}
       <main className="flex-1 flex flex-col overflow-hidden relative w-full">
-        {activeGoal?.type === 'battle_plan' ? (
-          <BattlePlanEditor
-            plan={activeGoal}
+        {currentMainView === 'todays_goals' ? (
+          <TodaysGoalsView
+            goals={goals}
+            theme={currentTheme}
+            viewMode={homeViewMode}
+            onSelectGoal={(id) => {
+              setActiveGoalId(id);
+              setCurrentMainView('today_editor');
+            }}
+            onCreateGoal={handleCreateGoal}
+          />
+        ) : currentMainView === 'today_editor' ? (
+          activeGoal?.type === 'battle_plan' ? (
+            <BattlePlanEditor
+              plan={activeGoal}
+              settings={settings}
+              theme={currentTheme}
+              onUpdatePlan={handleUpdateGoal}
+              onOpenMenu={() => setIsHamburgerOpen(true)}
+              isOverlayOpen={isOverlayOpen}
+            />
+          ) : (
+            <NoteEditor
+              goal={activeGoal}
+              settings={settings}
+              theme={currentTheme}
+              onUpdateGoal={handleUpdateGoal}
+              onOpenMenu={() => setIsHamburgerOpen(true)}
+              isOverlayOpen={isOverlayOpen}
+            />
+          )
+        ) : currentMainView === 'tenx_goals' ? (
+          <TenXGoalsView
+            goals={goals}
             settings={settings}
             theme={currentTheme}
-            onUpdatePlan={handleUpdateGoal}
-            onOpenMenu={() => setIsHamburgerOpen(true)}
-            isOverlayOpen={isOverlayOpen}
+            viewMode={tenXViewMode}
+            onSelectGoal={(id) => {
+              setActiveGoalId(id);
+              setCurrentMainView('tenx_editor');
+            }}
+            onCreateTenXGoal={handleCreateTenXGoal}
           />
-        ) : (
-          <NoteEditor
+        ) : currentMainView === 'tenx_editor' && activeGoal ? (
+          <TenXGoalEditor
             goal={activeGoal}
             settings={settings}
             theme={currentTheme}
             onUpdateGoal={handleUpdateGoal}
-            onOpenMenu={() => setIsHamburgerOpen(true)}
+            onRecordSession={handleRecordSession}
             isOverlayOpen={isOverlayOpen}
+            onBackToList={() => setCurrentMainView('tenx_goals')}
+          />
+        ) : (
+          <TodaysGoalsView
+            goals={goals}
+            theme={currentTheme}
+            viewMode={homeViewMode}
+            onSelectGoal={(id) => {
+              setActiveGoalId(id);
+              setCurrentMainView('today_editor');
+            }}
+            onCreateGoal={handleCreateGoal}
           />
         )}
       </main>
 
-      {/* Hamburger Menu Drawer: Strictly the 4 requested items */}
+      {/* Hamburger Menu Drawer */}
       <HamburgerMenu
         isOpen={isHamburgerOpen}
         onClose={() => setIsHamburgerOpen(false)}
         activeTab={activeOverlayTab}
         onSelectTab={(tab) => {
+          if (tab === 'todays_goal') {
+            setCurrentMainView('todays_goals');
+            setActiveOverlayTab(null);
+            setIsHamburgerOpen(false);
+            return;
+          }
+          if (tab === 'tenx_goal') {
+            setCurrentMainView('tenx_goals');
+            setActiveOverlayTab(null);
+            setIsHamburgerOpen(false);
+            return;
+          }
           setActiveOverlayTab(tab);
           setIsHamburgerOpen(false);
         }}
@@ -515,7 +708,7 @@ export default function App() {
         consistencyStats={consistencyStats}
       />
 
-      {/* Overlay Modal for the 4 Sections: Today's Goal, Calendar, KPI Tab, Settings */}
+      {/* Overlay Modal for Sections: Calendar, KPI Tab, Settings */}
       <MainOverlayView
         activeTab={activeOverlayTab}
         onClose={() => setActiveOverlayTab(null)}
@@ -526,9 +719,23 @@ export default function App() {
         consistencyStats={consistencyStats}
         onSelectGoal={(id) => {
           setActiveGoalId(id);
+          const clickedGoal = goals.find((g) => g.id === id);
+          if (clickedGoal?.type === 'tenx_goal' || clickedGoal?.isMoonshot) {
+            setCurrentMainView('tenx_editor');
+          } else {
+            setCurrentMainView('today_editor');
+          }
           setActiveOverlayTab(null);
         }}
-        onCreateGoal={handleCreateGoal}
+        onUpdateGoal={handleUpdateGoal}
+        onCreateGoal={() => {
+          handleCreateGoal();
+          setActiveOverlayTab(null);
+        }}
+        onCreateTenXGoal={() => {
+          handleCreateTenXGoal();
+          setActiveOverlayTab(null);
+        }}
         onDeleteGoal={handleDeleteGoal}
         onUpdateGoalProgress={handleUpdateGoalProgress}
         onUpdateSettings={setSettings}
@@ -540,6 +747,9 @@ export default function App() {
         onApplyTemplate={handleApplyTemplate}
         onImportBackup={handleImportBackup}
       />
+
+      {/* Offline Mode Status Indicator */}
+      <OfflineIndicator />
     </div>
   );
 }

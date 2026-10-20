@@ -2,7 +2,7 @@ export type ThemeMode = 'dark_charcoal' | 'light_notepad' | 'warm_sepia' | 'oled
 export type FontChoice = 'sans' | 'mono' | 'serif';
 export type FolderViewMode = 'tabular' | 'list';
 export type GoalStatus = 'in_progress' | 'achieved' | 'on_track' | 'needs_attention';
-export type DocumentType = 'goal' | 'battle_plan';
+export type DocumentType = 'goal' | 'battle_plan' | 'tenx_goal';
 
 export type DayConsistencyStatus = 'absent' | 'once' | 'target_met'; // absent (red), 1 time (orange), 2+ times (green)
 
@@ -45,6 +45,7 @@ export interface GoalNote {
   category: string;
   sessionsLog: GoalSessionLog[]; // all recorded write-in sessions
   isPinned?: boolean;
+  isMoonshot?: boolean;
   deletedAt?: string | null; // ISO string if in trash
 
   // Battle Plan specific fields

@@ -15,10 +15,12 @@ import {
   Copy,
   ExternalLink,
   Plus,
+  Smartphone,
 } from 'lucide-react';
 import { GoalNote, UserSettings, ThemeMode, FontChoice } from '../types';
 import { ThemeStyles } from '../utils/theme';
 import { DOCUMENTATION_TEMPLATES, exportGoalsBackupJSON } from '../utils/storage';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface SettingsViewProps {
   settings: UserSettings;
@@ -438,6 +440,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     />
                   </div>
                 </div>
+              </div>
+            </div>
+
+            {/* PWA App Installation & Offline Support */}
+            <div className={`pt-6 border-t ${theme.borderSubtle}`}>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className={`text-sm font-semibold flex items-center gap-2 ${theme.textPrimary}`}>
+                  <Smartphone className="w-4 h-4 text-emerald-400" />
+                  App Installation &amp; Offline PWA
+                </h3>
+                <span className="text-[11px] text-emerald-400 font-semibold px-2 py-0.5 rounded bg-emerald-500/15">
+                  Offline Ready
+                </span>
+              </div>
+              <p className={`text-xs mb-3.5 ${theme.textMuted}`}>
+                Install 10X RESULTS directly to your home screen or desktop for instant full-screen distraction-free writing, even when completely offline.
+              </p>
+              <div className="max-w-xs">
+                <PWAInstallButton variant="full" />
               </div>
             </div>
           </div>

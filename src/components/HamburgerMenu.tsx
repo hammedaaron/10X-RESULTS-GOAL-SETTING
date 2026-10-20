@@ -10,8 +10,9 @@ import {
 import { GoalNote, UserSettings, ConsistencyStats } from '../types';
 import { ThemeStyles } from '../utils/theme';
 import { BrandLogo } from './BrandLogo';
+import { PWAInstallButton } from './PWAInstallButton';
 
-export type ActiveDrawerTab = 'todays_goal' | 'calendar' | 'kpi' | 'settings' | null;
+export type ActiveDrawerTab = 'todays_goal' | 'calendar' | 'tenx_goal' | 'kpi' | 'settings' | null;
 
 interface HamburgerMenuProps {
   isOpen: boolean;
@@ -37,6 +38,7 @@ export const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
   if (!isOpen) return null;
 
   const deletedGoalsCount = goals.filter((g) => !!g.deletedAt).length;
+  const tenXGoalsCount = goals.filter((g) => !g.deletedAt && (g.type === 'tenx_goal' || g.isMoonshot)).length;
 
   return (
     <div className="fixed inset-0 z-50 flex bg-black/60 backdrop-blur-xs animate-fadeIn">
@@ -117,7 +119,41 @@ export const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             </div>
           </button>
 
-          {/* 3. KPI Tab */}
+          {/* 3. 10x Goal (Below Calendar tab) */}
+          <button
+            onClick={() => onSelectTab('tenx_goal')}
+            className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all ${
+              activeTab === 'tenx_goal'
+                ? `border-emerald-500 ring-2 ring-emerald-500/30 ${theme.bgSubtle}`
+                : `border-transparent hover:border-neutral-500/20 ${theme.bgHover}`
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-black border border-emerald-500/40 flex items-center justify-center shrink-0 shadow-xs">
+                <span className="font-black text-xs tracking-tighter">
+                  <span className="text-white">10</span>
+                  <span className="text-emerald-400">X</span>
+                </span>
+              </div>
+              <div>
+                <span className={`block font-semibold text-sm ${theme.textPrimary} flex items-center gap-1.5`}>
+                  10x Goal
+                  <span className="text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    Moonshot
+                  </span>
+                </span>
+                <span className={`text-xs ${theme.textMuted}`}>
+                  Never dismissed · Goal &amp; Battle Plan · KPI linked
+                </span>
+              </div>
+            </div>
+
+            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              {tenXGoalsCount}
+            </span>
+          </button>
+
+          {/* 4. KPI Tab */}
           <button
             onClick={() => onSelectTab('kpi')}
             className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all ${
@@ -151,7 +187,7 @@ export const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
             </span>
           </button>
 
-          {/* 4. Settings */}
+          {/* 5. Settings */}
           <button
             onClick={() => onSelectTab('settings')}
             className={`w-full flex items-center justify-between p-3.5 rounded-xl border text-left transition-all ${
@@ -181,6 +217,11 @@ export const HamburgerMenu: React.FC<HamburgerMenuProps> = ({
               </span>
             )}
           </button>
+        </div>
+
+        {/* PWA Install Button Footer */}
+        <div className={`p-4 border-t ${theme.border} shrink-0`}>
+          <PWAInstallButton variant="full" />
         </div>
       </div>
 

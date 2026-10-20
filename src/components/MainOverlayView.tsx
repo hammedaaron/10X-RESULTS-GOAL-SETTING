@@ -1,12 +1,21 @@
-import React from 'react';
-import { X, ArrowLeft, Target, Calendar, BarChart3, Settings } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  ArrowLeft,
+  Target,
+  Table as TableIcon,
+  LayoutList,
+  Plus,
+} from 'lucide-react';
 import { GoalNote, UserSettings, ConsistencyStats } from '../types';
 import { ThemeStyles } from '../utils/theme';
 import { CalendarView } from './CalendarView';
+import { TenXGoalsView } from './TenXGoalsView';
+import { TenXGoalEditor } from './TenXGoalEditor';
+import { TodaysGoalsView } from './TodaysGoalsView';
 import { KpiTabView } from './KpiTabView';
 import { SettingsView } from './SettingsView';
 import { ActiveDrawerTab } from './HamburgerMenu';
-import { getTodayKey } from '../utils/consistency';
 
 interface MainOverlayViewProps {
   activeTab: ActiveDrawerTab;
@@ -17,7 +26,9 @@ interface MainOverlayViewProps {
   theme: ThemeStyles;
   consistencyStats: ConsistencyStats;
   onSelectGoal: (goalId: string) => void;
+  onUpdateGoal?: (updatedGoal: GoalNote) => void;
   onCreateGoal: (monthStr?: string, targetDateStr?: string) => void;
+  onCreateTenXGoal?: () => void;
   onDeleteGoal: (goalId: string) => void;
   onUpdateGoalProgress: (goalId: string, newProgress: number) => void;
   onUpdateSettings: (newSettings: UserSettings) => void;
@@ -34,11 +45,11 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
   activeTab,
   onClose,
   goals,
-  activeGoal,
   settings,
   theme,
   consistencyStats,
   onSelectGoal,
+  onUpdateGoal,
   onCreateGoal,
   onDeleteGoal,
   onUpdateGoalProgress,
@@ -51,170 +62,253 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
   onApplyTemplate,
   onImportBackup,
 }) => {
+  // Navigation states
+  const [tenXSelectedGoalId, setTenXSelectedGoalId] = useState<string | null>(null);
+  const [tenXViewMode, setTenXViewMode] = useState<'tabular' | 'list'>('tabular');
+  const [todaysGoalViewMode, setTodaysGoalViewMode] = useState<'tabular' | 'list'>('tabular');
+
+  // Reset 10X selected goal on tab change
+  useEffect(() => {
+    setTenXSelectedGoalId(null);
+  }, [activeTab]);
+
   if (!activeTab) return null;
 
-  const todayKey = getTodayKey();
   const deletedGoals = goals.filter((g) => !!g.deletedAt);
-  const activeGoals = goals.filter((g) => !g.deletedAt);
+
+  // Filter ONLY today's regular goals (exclude 10X Moonshot goals and exclude past days)
+  const isSameDay = (d1: Date, d2: Date) => {
+    return (
+      d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate()
+    );
+  };
+  const today = new Date();
+  const todaysGoals = goals.filter((g) => {
+    if (g.deletedAt) return false;
+    // 10x moonshot goals must NOT appear as a list under today's goals
+    if (g.type === 'tenx_goal' || g.isMoonshot) return false;
+    // Only today's goals appear (not yesterday or any other day)
+    const created = new Date(g.createdAt);
+    return isSameDay(created, today);
+  });
+
+  // Selected 10X Moonshot Goal
+  const tenXSelectedGoal = tenXSelectedGoalId
+    ? goals.find((g) => g.id === tenXSelectedGoalId && !g.deletedAt)
+    : null;
+
+  // Single Master Backward Navigation: works in succession
+  const handleMasterBack = () => {
+    if (activeTab === 'tenx_goal' && tenXSelectedGoalId) {
+      // Step back in succession: first go back to the 10X Moonshot list page
+      setTenXSelectedGoalId(null);
+      return;
+    }
+    // Then click again to go back
+    onClose();
+  };
+
+  // Create new 10X Moonshot goal and open it
+  const handleCreateNewTenXGoal = () => {
+    const now = new Date();
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const defaultMonth = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+    const yearMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const newId = `tenx-${Date.now()}`;
+
+    const newGoal: GoalNote = {
+      id: newId,
+      type: 'tenx_goal',
+      isMoonshot: true,
+      title: '',
+      month: defaultMonth,
+      monthKey: yearMonthKey,
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString(),
+      progress: 0,
+      status: 'in_progress',
+      category: '10X Moonshot',
+      sessionsLog: [],
+      contentHtml: '',
+      plainText: '',
+      deletedAt: null,
+    };
+
+    if (onUpdateGoal) {
+      onUpdateGoal(newGoal);
+    }
+    setTenXSelectedGoalId(newId);
+  };
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-black/60 backdrop-blur-xs animate-fadeIn">
-      {/* Top Bar for Overlay */}
-      <div className={`h-12 border-b ${theme.border} ${theme.bgSurface} px-4 flex items-center justify-between`}>
-        <button
-          onClick={onClose}
-          className={`p-2 rounded-lg ${theme.bgHover} ${theme.textPrimary} hover:opacity-80 transition-colors flex items-center justify-center`}
-          title="Back"
-          aria-label="Back"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
+      {/* SINGLE MASTER TOP NAVIGATION BAR (no duplicate sub-bars anywhere) */}
+      <div className={`h-12 border-b ${theme.border} ${theme.bgSurface} px-4 flex items-center justify-between shrink-0 select-none`}>
+        {/* Left: Master Backward Arrow + Logo/Title */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={handleMasterBack}
+            className={`p-2 rounded-lg ${theme.bgHover} ${theme.textPrimary} hover:opacity-80 transition-colors flex items-center justify-center cursor-pointer`}
+            title="Back"
+            aria-label="Back"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
 
-        <div className={`text-xs font-semibold ${theme.textPrimary}`}>
-          {activeTab === 'todays_goal' && "Today's Goal Writing"}
-          {activeTab === 'calendar' && 'Goal Calendar & Consistency'}
-          {activeTab === 'kpi' && 'Consistency Rate KPI'}
-          {activeTab === 'settings' && 'Settings & Trash Bin'}
+          {activeTab === 'tenx_goal' && (
+            <div className="w-7 h-7 rounded-md bg-black border border-emerald-500/40 flex items-center justify-center shadow-xs">
+              <span className="font-black text-xs">
+                <span className="text-white">10</span>
+                <span className="text-emerald-400">X</span>
+              </span>
+            </div>
+          )}
+
+          {activeTab === 'todays_goal' && (
+            <span className={`text-sm font-bold ${theme.textPrimary}`}>
+              Today's Goals
+            </span>
+          )}
+
+          {activeTab === 'calendar' && (
+            <span className={`text-xs font-semibold ${theme.textPrimary}`}>
+              Goal Calendar &amp; Consistency
+            </span>
+          )}
+
+          {activeTab === 'kpi' && (
+            <span className={`text-xs font-semibold ${theme.textPrimary}`}>
+              Consistency Rate KPI
+            </span>
+          )}
+
+          {activeTab === 'settings' && (
+            <span className={`text-xs font-semibold ${theme.textPrimary}`}>
+              Settings &amp; Trash Bin
+            </span>
+          )}
         </div>
 
-        <button
-          onClick={onClose}
-          className={`p-1.5 rounded-md hover:bg-neutral-500/10 ${theme.textSecondary}`}
-          title="Close (Esc)"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {/* Right: Clean, un-cluttered controls */}
+        <div className="flex items-center gap-2">
+          {/* Controls for 10X Goals List (when not in editor) */}
+          {activeTab === 'tenx_goal' && !tenXSelectedGoalId && (
+            <>
+              <div className={`flex items-center border ${theme.border} rounded-lg p-0.5 ${theme.bgSubtle}`}>
+                <button
+                  onClick={() => setTenXViewMode('tabular')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    tenXViewMode === 'tabular'
+                      ? 'bg-neutral-500/20 text-emerald-400'
+                      : `${theme.textMuted} hover:${theme.textPrimary}`
+                  }`}
+                  title="Grid View"
+                  aria-label="Grid View"
+                >
+                  <TableIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setTenXViewMode('list')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    tenXViewMode === 'list'
+                      ? 'bg-neutral-500/20 text-emerald-400'
+                      : `${theme.textMuted} hover:${theme.textPrimary}`
+                  }`}
+                  title="List View"
+                  aria-label="List View"
+                >
+                  <LayoutList className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                onClick={handleCreateNewTenXGoal}
+                className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center shadow-xs transition-colors cursor-pointer"
+                title="New 10X Goal"
+                aria-label="New 10X Goal"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </>
+          )}
+
+          {/* Controls for Today's Goals (Grid/List toggle + Plus button) */}
+          {activeTab === 'todays_goal' && (
+            <>
+              <div className={`flex items-center border ${theme.border} rounded-lg p-0.5 ${theme.bgSubtle}`}>
+                <button
+                  onClick={() => setTodaysGoalViewMode('tabular')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    todaysGoalViewMode === 'tabular'
+                      ? 'bg-neutral-500/20 text-blue-400'
+                      : `${theme.textMuted} hover:${theme.textPrimary}`
+                  }`}
+                  title="Grid View"
+                  aria-label="Grid View"
+                >
+                  <TableIcon className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setTodaysGoalViewMode('list')}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    todaysGoalViewMode === 'list'
+                      ? 'bg-neutral-500/20 text-blue-400'
+                      : `${theme.textMuted} hover:${theme.textPrimary}`
+                  }`}
+                  title="List View"
+                  aria-label="List View"
+                >
+                  <LayoutList className="w-4 h-4" />
+                </button>
+              </div>
+
+              <button
+                onClick={() => {
+                  onCreateGoal();
+                  onClose();
+                }}
+                className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs flex items-center justify-center shadow-xs transition-colors cursor-pointer"
+                title="Write Today's Goal"
+                aria-label="Write Today's Goal"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={onClose}
+            className={`p-1.5 rounded-md hover:bg-neutral-500/10 ${theme.textSecondary} cursor-pointer`}
+            title="Close (Esc)"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Main View Area */}
-      <div className={`flex-1 overflow-hidden ${theme.bgSurface}`}>
+      <div className={`flex-1 overflow-hidden ${theme.bgSurface} flex flex-col`}>
         {/* TAB 1: TODAY'S GOAL */}
         {activeTab === 'todays_goal' && (
-          <div className="flex-1 h-full overflow-y-auto p-6 max-w-4xl mx-auto">
-            {/* Header Card */}
-            <div className={`p-6 rounded-2xl border ${theme.border} ${theme.bgSubtle} mb-6`}>
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <span className="text-xs uppercase tracking-wider text-blue-400 font-bold">
-                    Today's Commitment · {todayKey}
-                  </span>
-                  <h2 className={`text-2xl font-bold mt-1 ${theme.textPrimary}`}>
-                    Write Down Your Goals (At Least 2x Daily)
-                  </h2>
-                  <p className={`text-xs ${theme.textMuted} mt-1`}>
-                    Morning session clarifies focus; Evening session audits execution and commits tomorrow’s priorities.
-                  </p>
-                </div>
-
-                {/* Today's KPI badge */}
-                <div className={`p-3 rounded-xl border ${theme.border} ${theme.bgSurface} text-center min-w-[140px]`}>
-                  <div className="text-xs text-neutral-400">Today's Writes</div>
-                  <div
-                    className={`text-2xl font-mono font-bold tabular-nums ${
-                      consistencyStats.isTargetMetToday ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
-                  >
-                    {consistencyStats.todaySessionsCount} / {settings.consistencyDailyTarget}
-                  </div>
-                  <div className="text-[10px] mt-0.5 text-neutral-400">
-                    {consistencyStats.isTargetMetToday ? '✓ Target Met' : 'Session remaining'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Action buttons to quickly log morning / evening writes */}
-              {activeGoal && (
-                <div className="mt-6 pt-4 border-t border-neutral-500/15 flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-xs">
-                    <span className={theme.textMuted}>Active Objective: </span>
-                    <strong className={theme.textPrimary}>{activeGoal.title}</strong>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => onRecordSession(activeGoal.id, 'morning')}
-                      className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors"
-                    >
-                      Log Morning Write-In
-                    </button>
-                    <button
-                      onClick={() => onRecordSession(activeGoal.id, 'evening')}
-                      className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
-                    >
-                      Log Evening Write-In
-                    </button>
-                    <button
-                      onClick={onClose}
-                      className={`px-3.5 py-2 rounded-lg border ${theme.border} ${theme.textSecondary} text-xs font-semibold hover:${theme.textPrimary}`}
-                    >
-                      Write in Notepad ➔
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* List of Today's Objectives */}
-            <h3 className={`text-sm font-semibold mb-3 ${theme.textPrimary}`}>
-              Your Active Objectives
-            </h3>
-
-            <div className="space-y-3">
-              {activeGoals.map((g) => {
-                const isSelected = activeGoal?.id === g.id;
-                return (
-                  <div
-                    key={g.id}
-                    className={`p-4 rounded-xl border transition-all ${
-                      isSelected
-                        ? `border-blue-500 ring-2 ring-blue-500/20 ${theme.bgSubtle}`
-                        : `border-neutral-500/20 ${theme.bgSurface}`
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h4 className={`font-semibold text-sm ${theme.textPrimary}`}>{g.title}</h4>
-                        <p className={`text-xs ${theme.textMuted} mt-1 line-clamp-1`}>
-                          {g.plainText || 'No description added.'}
-                        </p>
-                      </div>
-
-                      <button
-                        onClick={() => {
-                          onSelectGoal(g.id);
-                          onClose();
-                        }}
-                        className={`px-3 py-1.5 rounded text-xs font-medium ${theme.accentBg} text-white hover:opacity-90`}
-                      >
-                        Open &amp; Edit
-                      </button>
-                    </div>
-
-                    {/* Progress tracking visual for this goal */}
-                    <div className="mt-3 pt-3 border-t border-neutral-500/10 flex items-center justify-between gap-4">
-                      <div className="flex-1 flex items-center gap-3">
-                        <span className={`text-xs font-bold tabular-nums ${g.progress === 100 ? 'text-emerald-400' : theme.accent}`}>
-                          {g.progress}%
-                        </span>
-                        <div className="flex-1 h-2 rounded-full bg-neutral-500/20 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full transition-all ${
-                              g.progress === 100 ? 'bg-emerald-500' : 'bg-blue-500'
-                            }`}
-                            style={{ width: `${g.progress}%` }}
-                          />
-                        </div>
-                      </div>
-
-                      <span className="text-[11px] text-neutral-400">
-                        {g.sessionsLog?.length || 0} total sessions logged
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <TodaysGoalsView
+            goals={goals}
+            theme={theme}
+            viewMode={todaysGoalViewMode}
+            onSelectGoal={(id) => {
+              onSelectGoal(id);
+              onClose();
+            }}
+            onCreateGoal={() => {
+              onCreateGoal();
+              onClose();
+            }}
+          />
         )}
 
         {/* TAB 2: CALENDAR */}
@@ -234,6 +328,33 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
             onDeleteGoal={onDeleteGoal}
             onUpdateGoalProgress={onUpdateGoalProgress}
           />
+        )}
+
+        {/* TAB: 10X MOONSHOT GOALS (Single navigation bar, works in succession) */}
+        {activeTab === 'tenx_goal' && (
+          tenXSelectedGoal ? (
+            <TenXGoalEditor
+              goal={tenXSelectedGoal}
+              settings={settings}
+              theme={theme}
+              onUpdateGoal={onUpdateGoal || (() => {})}
+              isOverlayOpen={true}
+              onRecordSession={onRecordSession}
+            />
+          ) : (
+            <TenXGoalsView
+              goals={goals}
+              settings={settings}
+              theme={theme}
+              viewMode={tenXViewMode}
+              onSelectGoal={(id) => setTenXSelectedGoalId(id)}
+              onCreateTenXGoal={handleCreateNewTenXGoal}
+              onSelectMainCanvas={(id) => {
+                onSelectGoal(id);
+                onClose();
+              }}
+            />
+          )
         )}
 
         {/* TAB 3: KPI TAB */}
