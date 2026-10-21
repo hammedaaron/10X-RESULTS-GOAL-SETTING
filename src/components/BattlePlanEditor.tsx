@@ -84,7 +84,7 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
       setProgress(calcProg);
       setChecklistReport(items);
     }
-  }, [plan.id]);
+  }, [plan.id, plan.title]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
@@ -315,10 +315,17 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
       {/* Clean Distraction-Free Text Canvas (Same as Goal Page, edge-to-edge text flow) */}
       <div
         className="flex-1 overflow-y-auto px-6 sm:px-8 py-6 pb-28 cursor-text w-full max-w-none"
-        onClick={() => contentRef.current?.focus()}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            contentRef.current?.focus();
+          }
+        }}
       >
         {/* Document Title & Report Toggle Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-2 border-b border-neutral-500/10">
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-2 border-b border-neutral-500/10"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex-1 min-w-[200px]">
             <input
               type="text"

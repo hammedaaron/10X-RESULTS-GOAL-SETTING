@@ -491,11 +491,52 @@ export default function App() {
 
               <BrandLogo size="sm" showText={false} />
 
-              {activeGoal?.title && (
-                <span className={`text-xs ${currentTheme.textMuted} truncate max-w-[200px] sm:max-w-md font-semibold`}>
-                  {activeGoal.title}
-                </span>
-              )}
+              <div className="flex items-center gap-1.5 max-w-[200px] sm:max-w-md">
+                {isEditingHeaderTitle ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={headerTitleDraft}
+                      onChange={(e) => setHeaderTitleDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveHeaderTitle();
+                        if (e.key === 'Escape') setIsEditingHeaderTitle(false);
+                      }}
+                      autoFocus
+                      placeholder="Goal title..."
+                      className={`text-xs font-semibold px-2 py-0.5 rounded border border-blue-500 bg-black/40 outline-none ${currentTheme.textPrimary} max-w-[150px] sm:max-w-[260px]`}
+                    />
+                    <button
+                      onClick={handleSaveHeaderTitle}
+                      className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
+                      title="Save Title (Enter)"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => setIsEditingHeaderTitle(false)}
+                      className={`p-1 rounded ${currentTheme.bgSubtle} ${currentTheme.textSecondary} cursor-pointer`}
+                      title="Cancel (Esc)"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setHeaderTitleDraft(activeGoal?.title || '');
+                      setIsEditingHeaderTitle(true);
+                    }}
+                    className={`flex items-center gap-1.5 text-xs ${currentTheme.textMuted} hover:${currentTheme.textPrimary} truncate font-semibold py-1 px-1.5 rounded hover:bg-neutral-500/10 cursor-pointer text-left`}
+                    title="Click to rename goal"
+                  >
+                    <span className="truncate">
+                      {activeGoal?.title || 'Untitled Goal (Click to name)'}
+                    </span>
+                    <Edit3 className="w-3 h-3 opacity-60 hover:opacity-100 shrink-0 text-blue-400" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Right: Saved Indicator + Menu */}
@@ -597,6 +638,53 @@ export default function App() {
                   <span className="text-emerald-400">X</span>
                 </span>
               </div>
+
+              <div className="flex items-center gap-1.5 max-w-[200px] sm:max-w-md">
+                {isEditingHeaderTitle ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={headerTitleDraft}
+                      onChange={(e) => setHeaderTitleDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleSaveHeaderTitle();
+                        if (e.key === 'Escape') setIsEditingHeaderTitle(false);
+                      }}
+                      autoFocus
+                      placeholder="10X Goal title..."
+                      className={`text-xs font-semibold px-2 py-0.5 rounded border border-emerald-500 bg-black/40 outline-none ${currentTheme.textPrimary} max-w-[150px] sm:max-w-[260px]`}
+                    />
+                    <button
+                      onClick={handleSaveHeaderTitle}
+                      className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                      title="Save Title (Enter)"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => setIsEditingHeaderTitle(false)}
+                      className={`p-1 rounded ${currentTheme.bgSubtle} ${currentTheme.textSecondary} cursor-pointer`}
+                      title="Cancel (Esc)"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setHeaderTitleDraft(activeGoal?.title || '');
+                      setIsEditingHeaderTitle(true);
+                    }}
+                    className={`flex items-center gap-1.5 text-xs ${currentTheme.textMuted} hover:${currentTheme.textPrimary} truncate font-semibold py-1 px-1.5 rounded hover:bg-neutral-500/10 cursor-pointer text-left`}
+                    title="Click to rename 10X goal"
+                  >
+                    <span className="truncate">
+                      {activeGoal?.title || 'Untitled 10X Goal (Click to name)'}
+                    </span>
+                    <Edit3 className="w-3 h-3 opacity-60 hover:opacity-100 shrink-0 text-emerald-400" />
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Right: Only subtle saved checkmark, no clutter */}
@@ -624,6 +712,7 @@ export default function App() {
               setCurrentMainView('today_editor');
             }}
             onCreateGoal={handleCreateGoal}
+            onUpdateGoal={handleUpdateGoal}
           />
         ) : currentMainView === 'today_editor' ? (
           activeGoal?.type === 'battle_plan' ? (
@@ -656,6 +745,7 @@ export default function App() {
               setCurrentMainView('tenx_editor');
             }}
             onCreateTenXGoal={handleCreateTenXGoal}
+            onUpdateGoal={handleUpdateGoal}
           />
         ) : currentMainView === 'tenx_editor' && activeGoal ? (
           <TenXGoalEditor
@@ -677,6 +767,7 @@ export default function App() {
               setCurrentMainView('today_editor');
             }}
             onCreateGoal={handleCreateGoal}
+            onUpdateGoal={handleUpdateGoal}
           />
         )}
       </main>

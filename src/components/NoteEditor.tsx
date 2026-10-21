@@ -31,7 +31,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         contentRef.current.innerHTML = goal.contentHtml || '';
       }
     }
-  }, [goal?.id]);
+  }, [goal?.id, goal?.title]);
 
   if (!goal) {
     return (
@@ -123,17 +123,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       {/* Clean Distraction-Free Text Canvas: Fills full screen with no side black/empty gutters */}
       <div
         className="flex-1 overflow-y-auto px-6 sm:px-8 py-6 cursor-text w-full max-w-none"
-        onClick={() => contentRef.current?.focus()}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            contentRef.current?.focus();
+          }
+        }}
       >
         {/* Document Title (Prominently editable, full width) */}
-        <div className="relative group/title mb-6">
-          <input
-            type="text"
-            value={title}
-            onChange={handleTitleChange}
-            placeholder="Goal title..."
-            className={`w-full text-2xl md:text-3xl font-bold bg-transparent outline-none ${theme.textPrimary} placeholder:opacity-30 border-b border-transparent hover:border-neutral-500/30 focus:border-blue-500 transition-colors pb-1`}
-          />
+        <div
+          className="relative group/title mb-6"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={title}
+              onChange={handleTitleChange}
+              placeholder="Goal title (click to edit)..."
+              className={`w-full text-2xl md:text-3xl font-bold bg-transparent outline-none ${theme.textPrimary} placeholder:opacity-30 border-b border-transparent hover:border-neutral-500/30 focus:border-blue-500 transition-colors pb-1`}
+            />
+          </div>
         </div>
 
         {/* Pure Text Writing Area: Fills full width without max-width restrictions */}

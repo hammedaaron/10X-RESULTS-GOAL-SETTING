@@ -26,13 +26,13 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
   const [title, setTitle] = useState(goal.title);
   const contentRef = useRef<HTMLDivElement>(null);
 
-  // Sync state when goal ID changes
+  // Sync state when goal ID or title changes
   useEffect(() => {
     setTitle(goal.title);
     if (contentRef.current && contentRef.current.innerHTML !== (goal.contentHtml || '')) {
       contentRef.current.innerHTML = goal.contentHtml || '';
     }
-  }, [goal.id]);
+  }, [goal.id, goal.title]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
@@ -114,15 +114,22 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
       {/* Clean Distraction-Free Text Canvas: Fills full width with zero clutter */}
       <div
         className="flex-1 overflow-y-auto px-6 sm:px-10 py-6 cursor-text w-full max-w-none"
-        onClick={() => contentRef.current?.focus()}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            contentRef.current?.focus();
+          }
+        }}
       >
         {/* Document Title (Prominently editable, full width) */}
-        <div className="mb-6">
+        <div
+          className="mb-6 relative group/title"
+          onClick={(e) => e.stopPropagation()}
+        >
           <input
             type="text"
             value={title}
             onChange={handleTitleChange}
-            placeholder="Title..."
+            placeholder="10X Goal title (click to edit)..."
             className={`w-full text-2xl sm:text-3xl font-bold bg-transparent outline-none ${theme.textPrimary} placeholder:opacity-30 border-b border-transparent hover:border-neutral-500/30 focus:border-emerald-500 transition-colors pb-1`}
           />
         </div>

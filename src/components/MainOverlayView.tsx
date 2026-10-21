@@ -308,6 +308,7 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
               onCreateGoal();
               onClose();
             }}
+            onUpdateGoal={onUpdateGoal}
           />
         )}
 
@@ -353,6 +354,7 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
                 onSelectGoal(id);
                 onClose();
               }}
+              onUpdateGoal={onUpdateGoal}
             />
           )
         )}
