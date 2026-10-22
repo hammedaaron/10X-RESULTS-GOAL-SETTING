@@ -376,7 +376,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     >
                       <div className="flex items-start justify-between gap-2 mb-1.5">
                         <h4 className={`text-xs font-semibold line-clamp-1 ${theme.textPrimary}`}>
-                          {g.title}
+                          {g.title || 'Untitled Goal'}
                         </h4>
                         <button
                           onClick={(e) => {

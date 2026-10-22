@@ -1,6 +1,6 @@
 {
-  "name": "ObjectiveNote - Goal Setting & Notepad",
-  "description": "Distraction-free note taking and goal-setting app with rich editing, monthly folder organization, consistency rate KPI, and customizable Notepad themes.",
+  "name": "10X RESULTS - Goal Setting & Productivity",
+  "description": "Distraction-free note taking, goal setting, battle plans, and consistency KPI tracking.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

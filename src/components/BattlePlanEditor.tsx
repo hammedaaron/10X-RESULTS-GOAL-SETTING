@@ -4,6 +4,7 @@ import {
   CheckSquare,
   Plus,
   FileSpreadsheet,
+  Edit2,
 } from 'lucide-react';
 import { GoalNote, UserSettings, BattlePlanItem } from '../types';
 import { ThemeStyles, getFontClass } from '../utils/theme';
@@ -27,6 +28,7 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
   isOverlayOpen = false,
 }) => {
   const contentRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState(plan.title);
   const [showReportTable, setShowReportTable] = useState(false);
   const [progress, setProgress] = useState(plan.progress || 0);
@@ -71,9 +73,13 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
     return { progress: calculatedProgress, items };
   };
 
-  // Sync internal state when plan changes
+  const isTitleFocusedRef = useRef(false);
+
+  // Sync internal state when plan ID changes (not on every title keystroke!)
   useEffect(() => {
-    setTitle(plan.title);
+    if (!isTitleFocusedRef.current) {
+      setTitle(plan.title || '');
+    }
     if (contentRef.current) {
       if (!plan.contentHtml || plan.contentHtml.trim() === '') {
         contentRef.current.innerHTML = getDefaultContent();
@@ -84,7 +90,14 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
       setProgress(calcProg);
       setChecklistReport(items);
     }
-  }, [plan.id, plan.title]);
+  }, [plan.id]);
+
+  // Sync title from outside only if not currently typing in title
+  useEffect(() => {
+    if (!isTitleFocusedRef.current && plan.title !== title) {
+      setTitle(plan.title || '');
+    }
+  }, [plan.title]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newTitle = e.target.value;
@@ -92,6 +105,20 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
     onUpdatePlan({
       ...plan,
       title: newTitle,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleTitleBlur = () => {
+    isTitleFocusedRef.current = false;
+    const trimmed = title.trim();
+    const finalTitle = trimmed || "Today's Battle Plan";
+    if (finalTitle !== title) {
+      setTitle(finalTitle);
+    }
+    onUpdatePlan({
+      ...plan,
+      title: finalTitle,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -327,13 +354,36 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex-1 min-w-[200px]">
-            <input
-              type="text"
-              value={title}
-              onChange={handleTitleChange}
-              placeholder="Click to name your battle plan..."
-              className={`w-full text-2xl md:text-3xl font-bold bg-transparent outline-none ${theme.textPrimary} placeholder:opacity-30 border-b border-transparent hover:border-neutral-500/30 focus:border-blue-500 transition-colors pb-1`}
-            />
+            <div className="flex items-center gap-2 group/title">
+              <input
+                ref={titleInputRef}
+                type="text"
+                value={title}
+                onChange={handleTitleChange}
+                onFocus={() => {
+                  isTitleFocusedRef.current = true;
+                }}
+                onBlur={handleTitleBlur}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleTitleBlur();
+                    contentRef.current?.focus();
+                  }
+                }}
+                placeholder="Click to name your battle plan..."
+                className={`w-full text-2xl md:text-3xl font-bold bg-transparent outline-none ${theme.textPrimary} placeholder:opacity-30 border-b border-transparent hover:border-neutral-500/30 focus:border-blue-500 transition-colors pb-1`}
+              />
+              <button
+                type="button"
+                onClick={() => titleInputRef.current?.focus()}
+                className={`p-1.5 rounded opacity-40 hover:opacity-100 ${theme.textSecondary} hover:text-emerald-400 cursor-pointer shrink-0 transition-opacity`}
+                title="Click to rename battle plan"
+                aria-label="Rename battle plan"
+              >
+                <Edit2 className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 text-xs">

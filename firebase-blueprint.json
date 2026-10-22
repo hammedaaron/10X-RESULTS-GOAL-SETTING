@@ -1,0 +1,148 @@
+{
+  "entities": {
+    "Goal": {
+      "title": "Goal",
+      "description": "User goal, battle plan, or 10X moonshot entry",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the goal",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID",
+          "maxLength": 128
+        },
+        "type": {
+          "type": "string",
+          "description": "Type of objective",
+          "enum": ["goal", "battle_plan", "tenx_goal"]
+        },
+        "title": {
+          "type": "string",
+          "description": "Title of the goal or battle plan",
+          "maxLength": 300
+        },
+        "month": {
+          "type": "string",
+          "description": "Month string (e.g., October 2026)",
+          "maxLength": 60
+        },
+        "monthKey": {
+          "type": "string",
+          "description": "Year-month key format YYYY-MM",
+          "maxLength": 20
+        },
+        "targetDate": {
+          "type": "string",
+          "description": "Optional ISO target date",
+          "maxLength": 50
+        },
+        "progress": {
+          "type": "number",
+          "description": "Completion percentage 0 to 100"
+        },
+        "status": {
+          "type": "string",
+          "description": "Current achievement status",
+          "enum": ["in_progress", "achieved", "needs_attention"]
+        },
+        "category": {
+          "type": "string",
+          "description": "Category tag",
+          "maxLength": 60
+        },
+        "contentHtml": {
+          "type": "string",
+          "description": "Rich text HTML content",
+          "maxLength": 1000000
+        },
+        "plainText": {
+          "type": "string",
+          "description": "Plain text representation for fast searching",
+          "maxLength": 1000000
+        },
+        "deletedAt": {
+          "type": "string",
+          "description": "Soft deletion timestamp if moved to trash",
+          "maxLength": 50
+        },
+        "isMoonshot": {
+          "type": "boolean",
+          "description": "True if 10X moonshot goal"
+        },
+        "sessionsLog": {
+          "type": "array",
+          "description": "Logs of morning/evening writing sessions"
+        },
+        "battlePlanItems": {
+          "type": "array",
+          "description": "Checklist items for battle plans"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation",
+          "maxLength": 50
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update",
+          "maxLength": 50
+        }
+      },
+      "required": ["id", "userId", "type", "title", "createdAt", "updatedAt"]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "Preferences and consistency targets for the user",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID",
+          "maxLength": 128
+        },
+        "theme": {
+          "type": "string",
+          "description": "Selected visual theme",
+          "maxLength": 50
+        },
+        "fontFamily": {
+          "type": "string",
+          "description": "Editor typography style",
+          "maxLength": 50
+        },
+        "fontSize": {
+          "type": "number",
+          "description": "Editor font size in px"
+        },
+        "consistencyDailyTarget": {
+          "type": "number",
+          "description": "Target daily writes"
+        },
+        "autoSave": {
+          "type": "boolean",
+          "description": "Whether autosave is enabled"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of update",
+          "maxLength": 50
+        }
+      },
+      "required": ["userId", "theme", "fontFamily", "fontSize", "consistencyDailyTarget", "autoSave"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/goals/{goalId}": {
+      "schema": "Goal",
+      "description": "Individual goal or battle plan owned by user"
+    },
+    "/users/{userId}/settings/user_settings": {
+      "schema": "UserSettings",
+      "description": "User configuration settings document"
+    }
+  }
+}

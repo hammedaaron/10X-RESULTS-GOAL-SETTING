@@ -21,12 +21,18 @@ import { GoalNote, UserSettings, ThemeMode, FontChoice } from '../types';
 import { ThemeStyles } from '../utils/theme';
 import { DOCUMENTATION_TEMPLATES, exportGoalsBackupJSON } from '../utils/storage';
 import { PWAInstallButton } from './PWAInstallButton';
+import { User } from '../utils/firebase';
+import { CloudSyncStatus } from '../utils/cloudSync';
+import { CloudSyncStatusBadge } from './CloudSyncStatus';
 
 interface SettingsViewProps {
   settings: UserSettings;
   theme: ThemeStyles;
   deletedGoals: GoalNote[];
   allGoals: GoalNote[];
+  user?: User | null;
+  authLoading?: boolean;
+  syncStatus?: CloudSyncStatus;
   onUpdateSettings: (newSettings: UserSettings) => void;
   onRestoreGoal: (goalId: string) => void;
   onPermanentlyDeleteGoal: (goalId: string) => void;
@@ -40,6 +46,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   theme,
   deletedGoals,
   allGoals,
+  user = null,
+  authLoading = false,
+  syncStatus = 'unauthenticated',
   onUpdateSettings,
   onRestoreGoal,
   onPermanentlyDeleteGoal,
@@ -50,6 +59,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [activeTab, setActiveTab] = useState<'appearance' | 'consistency' | 'documentation' | 'trash'>('appearance');
   const [confirmEmptyTrash, setConfirmEmptyTrash] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [backupNotice, setBackupNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const THEMES: { id: ThemeMode; name: string; desc: string; previewBg: string; previewText: string }[] = [
     {
@@ -91,6 +101,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     a.download = `objectivenote_backup_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    setBackupNotice({ type: 'success', message: 'Backup file exported successfully!' });
+    setTimeout(() => setBackupNotice(null), 3000);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -103,16 +115,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         const parsed = JSON.parse(content);
         if (Array.isArray(parsed.goals) && onImportBackup) {
           onImportBackup(parsed.goals);
-          alert('Backup restored successfully!');
+          setBackupNotice({ type: 'success', message: 'Backup restored successfully!' });
+          setTimeout(() => setBackupNotice(null), 3000);
         } else if (Array.isArray(parsed) && onImportBackup) {
           onImportBackup(parsed);
-          alert('Backup restored successfully!');
+          setBackupNotice({ type: 'success', message: 'Backup restored successfully!' });
+          setTimeout(() => setBackupNotice(null), 3000);
+        } else {
+          setBackupNotice({ type: 'error', message: 'File did not contain valid goals list.' });
+          setTimeout(() => setBackupNotice(null), 3500);
         }
       } catch {
-        alert('Invalid backup JSON file.');
+        setBackupNotice({ type: 'error', message: 'Invalid backup JSON file format.' });
+        setTimeout(() => setBackupNotice(null), 3500);
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleCopyTemplate = (tpl: typeof DOCUMENTATION_TEMPLATES[0]) => {
@@ -174,6 +193,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
+      {backupNotice && (
+        <div
+          className={`px-4 py-2.5 text-xs font-semibold flex items-center gap-2 transition-all ${
+            backupNotice.type === 'success'
+              ? 'bg-emerald-500/20 text-emerald-400 border-b border-emerald-500/30'
+              : 'bg-red-500/20 text-red-400 border-b border-red-500/30'
+          }`}
+        >
+          <Check className="w-4 h-4 shrink-0" />
+          <span>{backupNotice.message}</span>
+        </div>
+      )}
+
       {/* Main Tab Content */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 max-w-4xl">
         {/* DOCUMENTATION & TEMPLATES TAB (Requested by user) */}
@@ -230,6 +262,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </div>
             </div>
+
+            {/* Google Cloud Storage Section */}
+            <CloudSyncStatusBadge
+              user={user}
+              authLoading={authLoading}
+              syncStatus={syncStatus}
+              theme={theme}
+              variant="full"
+            />
 
             {/* Permanent Storage & Backup Utilities */}
             <div className={`p-5 rounded-xl border ${theme.border} ${theme.bgSubtle}`}>
@@ -590,7 +631,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <div className="flex-1 min-w-[200px]">
                       <div className="flex items-center gap-2">
                         <span className={`font-semibold text-xs line-through opacity-70 ${theme.textPrimary}`}>
-                          {g.title}
+                          {g.title || 'Untitled Goal'}
                         </span>
                         <span className={`text-[10px] px-2 py-0.5 rounded border ${theme.border} ${theme.textMuted}`}>
                           Folder: {g.month}

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Target, Plus, Search, Edit2, Check, X } from 'lucide-react';
+import React, { useState, useId } from 'react';
+import { Target, Plus, Search, Edit2, Check, X, Calendar, Layers, Sparkles } from 'lucide-react';
 import { GoalNote } from '../types';
 import { ThemeStyles } from '../utils/theme';
 
@@ -10,6 +10,7 @@ interface TodaysGoalsViewProps {
   onSelectGoal: (goalId: string) => void;
   onCreateGoal: () => void;
   onUpdateGoal?: (updatedGoal: GoalNote) => void;
+  onSwitchToTenX?: () => void;
 }
 
 export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
@@ -19,10 +20,12 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
   onSelectGoal,
   onCreateGoal,
   onUpdateGoal,
+  onSwitchToTenX,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [filterScope, setFilterScope] = useState<'today' | 'all'>('today');
 
   const isSameDay = (d1: Date, d2: Date) => {
     return (
@@ -33,37 +36,70 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
   };
   const today = new Date();
 
-  // Filter ONLY today's regular goals (exclude 10X Moonshot goals and exclude other dates)
-  const todaysGoals = goals.filter((g) => {
+  // Active regular goals (excluding 10X Moonshot goals and deleted goals)
+  const allRegularGoals = goals.filter((g) => {
     if (g.deletedAt) return false;
     if (g.type === 'tenx_goal' || g.isMoonshot) return false;
+    return true;
+  });
+
+  // Goals created today
+  const todayOnlyGoals = allRegularGoals.filter((g) => {
     const created = new Date(g.createdAt);
     return isSameDay(created, today);
   });
 
-  // Filter by search query across title and notes
-  const filteredGoals = todaysGoals.filter((g) => {
+  // Base list depending on filter scope (when search is active, automatically search across ALL goals)
+  const baseGoals = searchQuery.trim().length > 0
+    ? allRegularGoals
+    : filterScope === 'today'
+    ? todayOnlyGoals
+    : allRegularGoals;
+
+  // Filter by search query across title, notes, and category
+  const filteredGoals = baseGoals.filter((g) => {
     if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.toLowerCase().trim();
     const titleMatch = (g.title || '').toLowerCase().includes(q);
     const textMatch = (g.plainText || '').toLowerCase().includes(q);
-    return titleMatch || textMatch;
+    const catMatch = (g.category || '').toLowerCase().includes(q);
+    return titleMatch || textMatch || catMatch;
   });
 
+  // Check if search query matches any 10X goals (to help user discover 10x goals from search)
+  const matchingTenXCount = searchQuery.trim()
+    ? goals.filter(
+        (g) =>
+          !g.deletedAt &&
+          (g.type === 'tenx_goal' || g.isMoonshot) &&
+          ((g.title || '').toLowerCase().includes(searchQuery.toLowerCase().trim()) ||
+            (g.plainText || '').toLowerCase().includes(searchQuery.toLowerCase().trim()))
+      ).length
+    : 0;
+
   const startEditing = (goal: GoalNote, e?: React.SyntheticEvent) => {
-    if (e) e.stopPropagation();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     setEditingGoalId(goal.id);
     setEditingTitle(goal.title || '');
   };
 
   const cancelEditing = (e?: React.SyntheticEvent) => {
-    if (e) e.stopPropagation();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     setEditingGoalId(null);
     setEditingTitle('');
   };
 
   const saveEditing = (goal: GoalNote, e?: React.SyntheticEvent) => {
-    if (e) e.stopPropagation();
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
     const updatedTitle = editingTitle.trim() || 'Untitled Goal';
     if (onUpdateGoal) {
       onUpdateGoal({
@@ -75,20 +111,27 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
     setEditingGoalId(null);
   };
 
-  if (todaysGoals.length === 0) {
+  // If there are no regular goals created yet at all
+  if (allRegularGoals.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto p-6 flex flex-col items-center justify-center h-full">
-        <div className="max-w-xs mx-auto text-center py-24 px-4 flex flex-col items-center justify-center">
-          <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mb-6 text-blue-400 shadow-md">
-            <Target className="w-6 h-6" />
+        <div className="max-w-sm mx-auto text-center py-20 px-4 flex flex-col items-center justify-center">
+          <div className="w-14 h-14 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mb-5 text-blue-400 shadow-md">
+            <Target className="w-7 h-7" />
           </div>
+          <h3 className={`text-base font-bold mb-1.5 ${theme.textPrimary}`}>
+            No Daily Goals Yet
+          </h3>
+          <p className={`text-xs ${theme.textMuted} mb-6 leading-relaxed max-w-xs`}>
+            Start your day with crystal clarity by writing down your core daily objectives and targets.
+          </p>
           <button
             onClick={onCreateGoal}
-            className="p-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold inline-flex items-center justify-center shadow-md transition-colors cursor-pointer"
+            className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs inline-flex items-center gap-2 shadow-md transition-colors cursor-pointer"
             title="Write Today's Goal"
-            aria-label="Write Today's Goal"
           >
-            <Plus className="w-5 h-5" />
+            <Plus className="w-4 h-4" />
+            <span>Write Today's Goal</span>
           </button>
         </div>
       </div>
@@ -97,44 +140,127 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
 
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-6 h-full flex flex-col">
-      {/* Search & Filter Bar */}
+      {/* Search, Scope Filter & Stats Bar */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className={`relative flex items-center border ${theme.border} rounded-lg px-3 py-1.5 ${theme.bgSubtle} w-full sm:w-72 max-w-md`}>
-          <Search className={`w-4 h-4 mr-2 ${theme.textMuted} shrink-0`} />
-          <input
-            type="text"
-            placeholder="Search today's goals..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className={`bg-transparent text-xs outline-none w-full ${theme.textPrimary} placeholder:opacity-40`}
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className={`p-0.5 hover:text-white ${theme.textMuted}`}
-              title="Clear search"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+        {/* Search input */}
+        <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-md">
+          <div className={`relative flex items-center border ${theme.border} rounded-lg px-3 py-1.5 ${theme.bgSubtle} w-full`}>
+            <Search className={`w-4 h-4 mr-2 ${theme.textMuted} shrink-0`} />
+            <input
+              type="text"
+              placeholder="Search goals by title or text..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`bg-transparent text-xs outline-none w-full ${theme.textPrimary} placeholder:opacity-40`}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className={`p-0.5 hover:text-white ${theme.textMuted} cursor-pointer`}
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
-        <span className={`text-xs ${theme.textMuted} tabular-nums hidden sm:inline`}>
-          {filteredGoals.length} {filteredGoals.length === 1 ? 'goal' : 'goals'} found
-        </span>
+        {/* Scope Pill Toggle (Today vs All Goals) */}
+        <div className="flex items-center gap-2">
+          {!searchQuery && (
+            <div className={`flex items-center border ${theme.border} rounded-lg p-0.5 ${theme.bgSubtle} text-xs`}>
+              <button
+                onClick={() => setFilterScope('today')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors cursor-pointer font-medium ${
+                  filterScope === 'today'
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                    : `${theme.textMuted} hover:${theme.textPrimary}`
+                }`}
+                title="Goals created today"
+              >
+                <Calendar className="w-3 h-3" />
+                <span>Today ({todayOnlyGoals.length})</span>
+              </button>
+              <button
+                onClick={() => setFilterScope('all')}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md transition-colors cursor-pointer font-medium ${
+                  filterScope === 'all'
+                    ? 'bg-blue-600 text-white font-semibold shadow-xs'
+                    : `${theme.textMuted} hover:${theme.textPrimary}`
+                }`}
+                title="All daily goals"
+              >
+                <Layers className="w-3 h-3" />
+                <span>All Goals ({allRegularGoals.length})</span>
+              </button>
+            </div>
+          )}
+
+          <span className={`text-xs ${theme.textMuted} tabular-nums hidden sm:inline`}>
+            {filteredGoals.length} {filteredGoals.length === 1 ? 'goal' : 'goals'}
+          </span>
+        </div>
       </div>
 
+      {/* Cross-view 10X suggestion banner if search matches 10X goals */}
+      {searchQuery.trim() && matchingTenXCount > 0 && onSwitchToTenX && (
+        <div className={`mb-3.5 px-3 py-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 flex items-center justify-between text-xs`}>
+          <div className="flex items-center gap-2 text-emerald-400">
+            <Sparkles className="w-4 h-4 shrink-0" />
+            <span>
+              Found <strong>{matchingTenXCount}</strong> matching 10X Moonshot {matchingTenXCount === 1 ? 'goal' : 'goals'}.
+            </span>
+          </div>
+          <button
+            onClick={onSwitchToTenX}
+            className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] transition-colors cursor-pointer shrink-0"
+          >
+            View in 10X Goals →
+          </button>
+        </div>
+      )}
+
+      {/* Empty Filter State */}
       {filteredGoals.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center py-16 text-center">
-          <p className={`text-xs ${theme.textMuted} mb-3`}>
-            No today's goals match "{searchQuery}".
-          </p>
-          <button
-            onClick={() => setSearchQuery('')}
-            className="text-xs text-blue-400 hover:underline cursor-pointer"
-          >
-            Clear Search
-          </button>
+          {searchQuery ? (
+            <>
+              <p className={`text-xs ${theme.textMuted} mb-3`}>
+                No goals match "<span className="font-semibold">{searchQuery}</span>".
+              </p>
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-xs text-blue-400 hover:underline cursor-pointer font-semibold"
+              >
+                Clear Search
+              </button>
+            </>
+          ) : filterScope === 'today' ? (
+            <>
+              <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mb-3 text-blue-400">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <p className={`text-xs ${theme.textMuted} mb-3`}>
+                No goals written yet for today ({today.toLocaleDateString([], { month: 'short', day: 'numeric' })}).
+              </p>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={onCreateGoal}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold cursor-pointer shadow-xs"
+                >
+                  + Write Today's Goal
+                </button>
+                <button
+                  onClick={() => setFilterScope('all')}
+                  className={`px-3 py-1.5 rounded-lg border ${theme.border} text-xs ${theme.textSecondary} hover:${theme.textPrimary} cursor-pointer`}
+                >
+                  View All ({allRegularGoals.length}) Goals
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className={`text-xs ${theme.textMuted}`}>No goals found.</p>
+          )}
         </div>
       ) : viewMode === 'tabular' ? (
         /* TABULAR VIEW */
@@ -143,8 +269,9 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className={`border-b ${theme.border} ${theme.bgSurface} text-neutral-400 uppercase tracking-wider font-semibold text-[11px]`}>
-                  <th className="py-3 px-4">Today's Goal</th>
+                  <th className="py-3 px-4">Goal Title</th>
                   <th className="py-3 px-4">Progress</th>
+                  <th className="py-3 px-4">Date</th>
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
@@ -158,7 +285,7 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
                       onClick={() => !isEditing && onSelectGoal(g.id)}
                       className={`cursor-pointer transition-colors ${theme.bgHover} group`}
                     >
-                      <td className="py-3.5 px-4">
+                      <td className="py-3.5 px-4 min-w-[220px]">
                         {isEditing ? (
                           <div
                             className="flex items-center gap-2 max-w-md"
@@ -172,20 +299,21 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
                                 if (e.key === 'Enter') saveEditing(g, e);
                                 if (e.key === 'Escape') cancelEditing(e);
                               }}
+                              onBlur={(e) => saveEditing(g, e)}
                               autoFocus
                               placeholder="Goal title..."
                               className={`flex-1 px-2.5 py-1 text-sm font-semibold rounded border border-blue-500 bg-black/40 outline-none ${theme.textPrimary}`}
                             />
                             <button
-                              onClick={(e) => saveEditing(g, e)}
-                              className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
+                              onMouseDown={(e) => saveEditing(g, e)}
+                              className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shrink-0"
                               title="Save Title (Enter)"
                             >
                               <Check className="w-3.5 h-3.5" />
                             </button>
                             <button
-                              onClick={cancelEditing}
-                              className={`p-1.5 rounded ${theme.bgSubtle} ${theme.textSecondary} hover:${theme.textPrimary} cursor-pointer`}
+                              onMouseDown={cancelEditing}
+                              className={`p-1.5 rounded ${theme.bgSubtle} ${theme.textSecondary} hover:${theme.textPrimary} cursor-pointer shrink-0`}
                               title="Cancel (Esc)"
                             >
                               <X className="w-3.5 h-3.5" />
@@ -193,13 +321,17 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
                           </div>
                         ) : (
                           <div className="flex items-center gap-2 max-w-md">
-                            <span className={`font-semibold text-sm truncate group-hover:text-blue-400 transition-colors ${theme.textPrimary}`}>
+                            <span
+                              onDoubleClick={(e) => startEditing(g, e)}
+                              className={`font-semibold text-sm truncate group-hover:text-blue-400 transition-colors ${theme.textPrimary}`}
+                              title="Double-click to rename"
+                            >
                               {g.title || 'Untitled Goal'}
                             </span>
                             <button
                               onClick={(e) => startEditing(g, e)}
                               className={`p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-neutral-500/20 ${theme.textSecondary} hover:text-blue-400 transition-all cursor-pointer shrink-0`}
-                              title="Change Goal Title"
+                              title="Rename Goal"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
@@ -224,14 +356,21 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
                           </span>
                         </div>
                       </td>
+                      <td className="py-3.5 px-4 whitespace-nowrap text-neutral-400 text-[11px]">
+                        {new Date(g.createdAt).toLocaleDateString([], {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </td>
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={(e) => startEditing(g, e)}
-                            className={`p-1.5 rounded ${theme.bgHover} ${theme.textSecondary} hover:text-blue-400 transition-colors cursor-pointer`}
-                            title="Edit Title"
+                            className={`p-1.5 rounded ${theme.bgHover} ${theme.textSecondary} hover:text-blue-400 transition-colors cursor-pointer flex items-center gap-1 text-[11px] font-medium border border-transparent hover:border-blue-500/30`}
+                            title="Rename Goal"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
+                            <span className="hidden sm:inline">Rename</span>
                           </button>
                           <button
                             onClick={() => onSelectGoal(g.id)}
@@ -275,19 +414,20 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
                             if (e.key === 'Enter') saveEditing(g, e);
                             if (e.key === 'Escape') cancelEditing(e);
                           }}
+                          onBlur={(e) => saveEditing(g, e)}
                           autoFocus
                           placeholder="Goal title..."
                           className={`flex-1 px-2 py-1 text-sm font-bold rounded border border-blue-500 bg-black/40 outline-none ${theme.textPrimary}`}
                         />
                         <button
-                          onClick={(e) => saveEditing(g, e)}
+                          onMouseDown={(e) => saveEditing(g, e)}
                           className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shrink-0"
                           title="Save Title"
                         >
                           <Check className="w-3.5 h-3.5" />
                         </button>
                         <button
-                          onClick={cancelEditing}
+                          onMouseDown={cancelEditing}
                           className={`p-1 rounded ${theme.bgSubtle} ${theme.textSecondary} cursor-pointer shrink-0`}
                           title="Cancel"
                         >
@@ -296,15 +436,20 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
                       </div>
                     ) : (
                       <>
-                        <h4 className={`font-bold text-sm group-hover:text-blue-400 transition-colors ${theme.textPrimary} line-clamp-1`}>
+                        <h4
+                          onDoubleClick={(e) => startEditing(g, e)}
+                          className={`font-bold text-sm group-hover:text-blue-400 transition-colors ${theme.textPrimary} line-clamp-1`}
+                          title="Double-click to rename"
+                        >
                           {g.title || 'Untitled Goal'}
                         </h4>
                         <button
                           onClick={(e) => startEditing(g, e)}
-                          className={`p-1 rounded hover:bg-neutral-500/20 ${theme.textSecondary} hover:text-blue-400 transition-colors cursor-pointer shrink-0`}
-                          title="Change Goal Title"
+                          className={`p-1 rounded hover:bg-neutral-500/20 ${theme.textSecondary} hover:text-blue-400 transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[11px]`}
+                          title="Rename Goal"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
+                          <span className="opacity-0 group-hover:opacity-100 transition-opacity">Rename</span>
                         </button>
                       </>
                     )}
@@ -317,7 +462,12 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
                 </div>
                 <div className="pt-2 border-t border-neutral-500/15">
                   <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-neutral-400">Progress</span>
+                    <span className="text-neutral-400 text-[11px]">
+                      {new Date(g.createdAt).toLocaleDateString([], {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </span>
                     <span className="font-mono font-bold text-blue-400">
                       {g.progress || 0}%
                     </span>
@@ -337,3 +487,4 @@ export const TodaysGoalsView: React.FC<TodaysGoalsViewProps> = ({
     </div>
   );
 };
+

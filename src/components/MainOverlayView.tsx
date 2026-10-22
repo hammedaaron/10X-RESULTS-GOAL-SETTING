@@ -9,6 +9,8 @@ import {
 } from 'lucide-react';
 import { GoalNote, UserSettings, ConsistencyStats } from '../types';
 import { ThemeStyles } from '../utils/theme';
+import { User } from '../utils/firebase';
+import { CloudSyncStatus } from '../utils/cloudSync';
 import { CalendarView } from './CalendarView';
 import { TenXGoalsView } from './TenXGoalsView';
 import { TenXGoalEditor } from './TenXGoalEditor';
@@ -25,6 +27,9 @@ interface MainOverlayViewProps {
   settings: UserSettings;
   theme: ThemeStyles;
   consistencyStats: ConsistencyStats;
+  user?: User | null;
+  authLoading?: boolean;
+  syncStatus?: CloudSyncStatus;
   onSelectGoal: (goalId: string) => void;
   onUpdateGoal?: (updatedGoal: GoalNote) => void;
   onCreateGoal: (monthStr?: string, targetDateStr?: string) => void;
@@ -48,6 +53,9 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
   settings,
   theme,
   consistencyStats,
+  user = null,
+  authLoading = false,
+  syncStatus = 'unauthenticated',
   onSelectGoal,
   onUpdateGoal,
   onCreateGoal,
@@ -309,6 +317,9 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
               onClose();
             }}
             onUpdateGoal={onUpdateGoal}
+            onSwitchToTenX={() => {
+              if (onSelectTab) onSelectTab('tenx_goal');
+            }}
           />
         )}
 
@@ -355,6 +366,9 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
                 onClose();
               }}
               onUpdateGoal={onUpdateGoal}
+              onSwitchToTodaysGoals={() => {
+                if (onSelectTab) onSelectTab('todays_goal');
+              }}
             />
           )
         )}
@@ -383,6 +397,9 @@ export const MainOverlayView: React.FC<MainOverlayViewProps> = ({
             theme={theme}
             deletedGoals={deletedGoals}
             allGoals={goals}
+            user={user}
+            authLoading={authLoading}
+            syncStatus={syncStatus}
             onUpdateSettings={onUpdateSettings}
             onRestoreGoal={onRestoreGoal}
             onPermanentlyDeleteGoal={onPermanentlyDeleteGoal}

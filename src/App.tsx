@@ -6,6 +6,7 @@ import {
   saveStoredGoals,
   loadStoredSettings,
   saveStoredSettings,
+  recoverDurableGoals,
 } from './utils/storage';
 import { calculateConsistencyStats } from './utils/consistency';
 import { THEME_CONFIGS } from './utils/theme';
@@ -19,6 +20,15 @@ import { MainOverlayView } from './components/MainOverlayView';
 import { BrandLogo } from './components/BrandLogo';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { auth, onAuthStateChanged, User, testFirestoreConnection } from './utils/firebase';
+import {
+  saveGoalToCloud,
+  deleteGoalFromCloud,
+  syncLocalGoalsToCloud,
+  subscribeToCloudGoals,
+  CloudSyncStatus,
+} from './utils/cloudSync';
+import { CloudSyncStatusBadge } from './components/CloudSyncStatus';
 
 export type AppMainView = 'todays_goals' | 'today_editor' | 'tenx_goals' | 'tenx_editor';
 
@@ -39,6 +49,65 @@ export default function App() {
   const [tenXViewMode, setTenXViewMode] = useState<'tabular' | 'list'>('tabular');
   const [isEditingHeaderTitle, setIsEditingHeaderTitle] = useState(false);
   const [headerTitleDraft, setHeaderTitleDraft] = useState('');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<CloudSyncStatus>('unauthenticated');
+
+  // Test Firestore connection on app mount
+  useEffect(() => {
+    testFirestoreConnection().catch(() => {});
+  }, []);
+
+  // Listen to Google Auth state
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      if (user) {
+        setCloudSyncStatus('syncing');
+      } else {
+        setCloudSyncStatus('unauthenticated');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Subscribe to real-time cloud sync when authenticated
+  useEffect(() => {
+    if (!currentUser) return;
+
+    let isInitial = true;
+    const unsubscribe = subscribeToCloudGoals(
+      currentUser,
+      (cloudGoals) => {
+        setCloudSyncStatus('synced');
+        if (isInitial && cloudGoals.length === 0) {
+          syncLocalGoalsToCloud(currentUser, goals).catch(() => {});
+          isInitial = false;
+          return;
+        }
+
+        isInitial = false;
+        setGoals((localGoals) => {
+          const cloudIds = new Set(cloudGoals.map((g) => g.id));
+          const merged = [...cloudGoals];
+          for (const local of localGoals) {
+            if (!cloudIds.has(local.id)) {
+              merged.push(local);
+              saveGoalToCloud(currentUser, local).catch(() => {});
+            }
+          }
+          saveStoredGoals(merged);
+          return merged;
+        });
+      },
+      () => {
+        setCloudSyncStatus('error');
+      }
+    );
+
+    return () => unsubscribe();
+  }, [currentUser]);
 
   // Permanent Storage Persistence: sync synchronously on every change
   useEffect(() => {
@@ -88,110 +157,165 @@ export default function App() {
     }
   }, [goals, activeGoal]);
 
-  // Sync header title draft
+  // Attempt durable recovery from IndexedDB on startup if localStorage was cleared
   useEffect(() => {
-    if (activeGoal) {
+    recoverDurableGoals().then((recovered) => {
+      if (recovered && recovered.length > 0) {
+        setGoals((current) => {
+          const isOnlyDefaultStarter =
+            current.length === 1 &&
+            (current[0].title === "Today's Goal Objective" || current[0].title === 'My First Goal Objective') &&
+            !current[0].contentHtml;
+          if (current.length === 0 || isOnlyDefaultStarter) {
+            saveStoredGoals(recovered);
+            const firstActive = recovered.find((g) => !g.deletedAt);
+            if (firstActive) setActiveGoalId(firstActive.id);
+            return recovered;
+          }
+          return current;
+        });
+      }
+    });
+  }, []);
+
+  // Sync header title draft only when not actively editing in header
+  useEffect(() => {
+    if (activeGoal && !isEditingHeaderTitle) {
       setHeaderTitleDraft(activeGoal.title);
     }
-  }, [activeGoal?.id, activeGoal?.title]);
+  }, [activeGoal?.id, activeGoal?.title, isEditingHeaderTitle]);
 
   // Handlers
-  const handleUpdateGoal = useCallback((updatedGoal: GoalNote) => {
-    setGoals((prev) => {
-      const exists = prev.some((g) => g.id === updatedGoal.id);
-      const next = exists
-        ? prev.map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
-        : [updatedGoal, ...prev];
-      saveStoredGoals(next);
-      return next;
-    });
-    setLastSavedNotice(true);
-    setTimeout(() => setLastSavedNotice(false), 2000);
-  }, []);
+  const handleUpdateGoal = useCallback(
+    (updatedGoal: GoalNote) => {
+      setGoals((prev) => {
+        const exists = prev.some((g) => g.id === updatedGoal.id);
+        const next = exists
+          ? prev.map((g) => (g.id === updatedGoal.id ? updatedGoal : g))
+          : [updatedGoal, ...prev];
+        saveStoredGoals(next);
+        return next;
+      });
+
+      if (currentUser) {
+        saveGoalToCloud(currentUser, updatedGoal).catch(() => {});
+      }
+
+      setLastSavedNotice(true);
+      setTimeout(() => setLastSavedNotice(false), 2000);
+    },
+    [currentUser]
+  );
 
   // Clean goal creation: clean empty sheet, ready for user writing
-  const handleCreateGoal = useCallback((monthStr?: string, targetDateStr?: string) => {
-    const now = new Date();
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    const defaultMonth = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
-    const targetMonth = monthStr || defaultMonth;
-    const yearMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const handleCreateGoal = useCallback(
+    (monthStr?: unknown, targetDateStr?: unknown) => {
+      const now = new Date();
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const defaultMonth = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+      const targetMonth =
+        typeof monthStr === 'string' && monthStr.trim() ? monthStr.trim() : defaultMonth;
+      const yearMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const validTargetDate =
+        typeof targetDateStr === 'string' && targetDateStr.trim() ? targetDateStr.trim() : undefined;
 
-    const newGoalId = `goal-${Date.now()}`;
-    const newGoal: GoalNote = {
-      id: newGoalId,
-      type: 'goal',
-      title: '',
-      month: targetMonth,
-      monthKey: yearMonthKey,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      targetDate: targetDateStr,
-      progress: 0,
-      status: 'in_progress',
-      category: 'General',
-      sessionsLog: [],
-      contentHtml: '',
-      plainText: '',
-      deletedAt: null,
-    };
+      const newGoalId = `goal-${Date.now()}`;
+      const newGoal: GoalNote = {
+        id: newGoalId,
+        type: 'goal',
+        title: "Today's Goal Objective",
+        month: targetMonth,
+        monthKey: yearMonthKey,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        targetDate: validTargetDate,
+        progress: 0,
+        status: 'in_progress',
+        category: 'General',
+        sessionsLog: [],
+        contentHtml: '',
+        plainText: '',
+        deletedAt: null,
+        isMoonshot: false,
+      };
 
-    setGoals((prev) => {
-      const next = [newGoal, ...prev];
-      saveStoredGoals(next);
-      return next;
-    });
-    setActiveGoalId(newGoalId);
-    setCurrentMainView('today_editor');
-    setActiveOverlayTab(null);
-    setIsHamburgerOpen(false);
-  }, []);
+      setGoals((prev) => {
+        const next = [newGoal, ...prev];
+        saveStoredGoals(next);
+        return next;
+      });
+
+      if (currentUser) {
+        saveGoalToCloud(currentUser, newGoal).catch(() => {});
+      }
+
+      setActiveGoalId(newGoalId);
+      setCurrentMainView('today_editor');
+      setActiveOverlayTab(null);
+      setIsHamburgerOpen(false);
+    },
+    [currentUser]
+  );
 
   // Clean battle plan creation: clean empty checklist sheet, ready for user tasks
-  const handleCreateBattlePlan = useCallback((monthStr?: string, targetDateStr?: string) => {
-    const now = new Date();
-    const monthNames = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'
-    ];
-    const defaultMonth = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
-    const targetMonth = monthStr || defaultMonth;
-    const yearMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const handleCreateBattlePlan = useCallback(
+    (monthStr?: unknown, targetDateStr?: unknown) => {
+      const now = new Date();
+      const monthNames = [
+        'January', 'February', 'March', 'April', 'May', 'June',
+        'July', 'August', 'September', 'October', 'November', 'December'
+      ];
+      const defaultMonth = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+      const targetMonth =
+        typeof monthStr === 'string' && monthStr.trim() ? monthStr.trim() : defaultMonth;
+      const yearMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const validTargetDate =
+        typeof targetDateStr === 'string' && targetDateStr.trim()
+          ? targetDateStr.trim()
+          : new Date().toISOString().split('T')[0];
 
-    const newPlanId = `bp-${Date.now()}`;
-    const initialChecklistHtml = `<p class="checklist-item" style="display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;"><input type="checkbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;"><br></span></p>`;
+      const newPlanId = `bp-${Date.now()}`;
+      const initialChecklistHtml = `<p class="checklist-item" style="display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;"><input type="checkbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;"><br></span></p>`;
 
-    const newPlan: GoalNote = {
-      id: newPlanId,
-      type: 'battle_plan',
-      title: "Today's Battle Plan",
-      month: targetMonth,
-      monthKey: yearMonthKey,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-      targetDate: targetDateStr || new Date().toISOString().split('T')[0],
-      progress: 0,
-      status: 'in_progress',
-      category: 'Battle Plan',
-      sessionsLog: [],
-      contentHtml: initialChecklistHtml,
-      plainText: '',
-      deletedAt: null,
-    };
+      const newPlan: GoalNote = {
+        id: newPlanId,
+        type: 'battle_plan',
+        title: "Today's Battle Plan",
+        month: targetMonth,
+        monthKey: yearMonthKey,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        targetDate: validTargetDate,
+        progress: 0,
+        status: 'in_progress',
+        category: 'Battle Plan',
+        sessionsLog: [],
+        contentHtml: initialChecklistHtml,
+        plainText: '',
+        deletedAt: null,
+        isMoonshot: false,
+      };
 
-    setGoals((prev) => {
-      const next = [newPlan, ...prev];
-      saveStoredGoals(next);
-      return next;
-    });
-    setActiveGoalId(newPlanId);
-    setCurrentMainView('today_editor');
-    setActiveOverlayTab(null);
-    setIsHamburgerOpen(false);
-  }, []);
+      setGoals((prev) => {
+        const next = [newPlan, ...prev];
+        saveStoredGoals(next);
+        return next;
+      });
+
+      if (currentUser) {
+        saveGoalToCloud(currentUser, newPlan).catch(() => {});
+      }
+
+      setActiveGoalId(newPlanId);
+      setCurrentMainView('today_editor');
+      setActiveOverlayTab(null);
+      setIsHamburgerOpen(false);
+    },
+    [currentUser]
+  );
 
   // Clean 10X Moonshot goal creation
   const handleCreateTenXGoal = useCallback(() => {
@@ -208,7 +332,7 @@ export default function App() {
       id: newId,
       type: 'tenx_goal',
       isMoonshot: true,
-      title: '',
+      title: '10X Moonshot Target',
       month: defaultMonth,
       monthKey: yearMonthKey,
       createdAt: now.toISOString(),
@@ -239,11 +363,16 @@ export default function App() {
       saveStoredGoals(next);
       return next;
     });
+
+    if (currentUser) {
+      saveGoalToCloud(currentUser, newTenXGoal).catch(() => {});
+    }
+
     setActiveGoalId(newId);
     setCurrentMainView('tenx_editor');
     setActiveOverlayTab(null);
     setIsHamburgerOpen(false);
-  }, []);
+  }, [currentUser]);
 
   // Apply template from documentation in settings
   const handleApplyTemplate = useCallback(
@@ -279,55 +408,100 @@ export default function App() {
         saveStoredGoals(next);
         return next;
       });
+
+      if (currentUser) {
+        saveGoalToCloud(currentUser, newDoc).catch(() => {});
+      }
+
       setActiveGoalId(newId);
       setCurrentMainView('today_editor');
       setActiveOverlayTab(null);
     },
-    []
+    [currentUser]
   );
 
-  const handleImportBackup = useCallback((importedGoals: GoalNote[]) => {
-    if (Array.isArray(importedGoals)) {
-      setGoals(importedGoals);
-      saveStoredGoals(importedGoals);
-      const first = importedGoals.find((g) => !g.deletedAt);
-      if (first) setActiveGoalId(first.id);
-    }
-  }, []);
+  const handleImportBackup = useCallback(
+    (importedGoals: GoalNote[]) => {
+      if (Array.isArray(importedGoals)) {
+        setGoals(importedGoals);
+        saveStoredGoals(importedGoals);
+        if (currentUser) {
+          syncLocalGoalsToCloud(currentUser, importedGoals).catch(() => {});
+        }
+        const first = importedGoals.find((g) => !g.deletedAt);
+        if (first) setActiveGoalId(first.id);
+      }
+    },
+    [currentUser]
+  );
 
-  const handleDeleteGoal = useCallback((goalId: string) => {
-    setGoals((prev) => {
-      const next = prev.map((g) =>
-        g.id === goalId ? { ...g, deletedAt: new Date().toISOString() } : g
-      );
-      saveStoredGoals(next);
-      return next;
-    });
-  }, []);
+  const handleDeleteGoal = useCallback(
+    (goalId: string) => {
+      setGoals((prev) => {
+        const next = prev.map((g) => {
+          if (g.id === goalId) {
+            const updated = { ...g, deletedAt: new Date().toISOString() };
+            if (currentUser) {
+              saveGoalToCloud(currentUser, updated).catch(() => {});
+            }
+            return updated;
+          }
+          return g;
+        });
+        saveStoredGoals(next);
+        return next;
+      });
+    },
+    [currentUser]
+  );
 
-  const handleRestoreGoal = useCallback((goalId: string) => {
-    setGoals((prev) => {
-      const next = prev.map((g) => (g.id === goalId ? { ...g, deletedAt: null } : g));
-      saveStoredGoals(next);
-      return next;
-    });
-  }, []);
+  const handleRestoreGoal = useCallback(
+    (goalId: string) => {
+      setGoals((prev) => {
+        const next = prev.map((g) => {
+          if (g.id === goalId) {
+            const updated = { ...g, deletedAt: null };
+            if (currentUser) {
+              saveGoalToCloud(currentUser, updated).catch(() => {});
+            }
+            return updated;
+          }
+          return g;
+        });
+        saveStoredGoals(next);
+        return next;
+      });
+    },
+    [currentUser]
+  );
 
-  const handlePermanentlyDeleteGoal = useCallback((goalId: string) => {
-    setGoals((prev) => {
-      const next = prev.filter((g) => g.id !== goalId);
-      saveStoredGoals(next);
-      return next;
-    });
-  }, []);
+  const handlePermanentlyDeleteGoal = useCallback(
+    (goalId: string) => {
+      setGoals((prev) => {
+        const next = prev.filter((g) => g.id !== goalId);
+        saveStoredGoals(next);
+        return next;
+      });
+      if (currentUser) {
+        deleteGoalFromCloud(currentUser, goalId).catch(() => {});
+      }
+    },
+    [currentUser]
+  );
 
   const handleEmptyTrash = useCallback(() => {
     setGoals((prev) => {
+      const toDelete = prev.filter((g) => !!g.deletedAt);
       const next = prev.filter((g) => !g.deletedAt);
       saveStoredGoals(next);
+      if (currentUser) {
+        for (const item of toDelete) {
+          deleteGoalFromCloud(currentUser, item.id).catch(() => {});
+        }
+      }
       return next;
     });
-  }, []);
+  }, [currentUser]);
 
   const handleUpdateGoalProgress = useCallback((goalId: string, newProgress: number) => {
     setGoals((prev) => {
@@ -373,24 +547,40 @@ export default function App() {
         saveStoredGoals(next);
         return next;
       });
+      setLastSavedNotice(true);
+      setTimeout(() => setLastSavedNotice(false), 2000);
     },
     []
   );
 
   const handleSaveHeaderTitle = () => {
-    if (activeGoal && headerTitleDraft.trim()) {
+    if (activeGoal) {
+      const trimmed = headerTitleDraft.trim();
+      const fallback =
+        activeGoal.type === 'tenx_goal' || activeGoal.isMoonshot
+          ? '10X Moonshot Target'
+          : "Today's Goal Objective";
+      const finalTitle = trimmed || fallback;
       handleUpdateGoal({
         ...activeGoal,
-        title: headerTitleDraft.trim(),
+        title: finalTitle,
         updatedAt: new Date().toISOString(),
       });
     }
     setIsEditingHeaderTitle(false);
   };
 
-  // Esc key closes hamburger, overlay, or popover
+  // Esc key closes hamburger/overlay/editor rename; Ctrl+S triggers synchronous save
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        saveStoredGoals(goals);
+        saveStoredSettings(settings);
+        setLastSavedNotice(true);
+        setTimeout(() => setLastSavedNotice(false), 2000);
+        return;
+      }
       if (e.key === 'Escape') {
         if (isEditingHeaderTitle) {
           setIsEditingHeaderTitle(false);
@@ -403,7 +593,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [isEditingHeaderTitle, activeOverlayTab, isHamburgerOpen]);
+  }, [isEditingHeaderTitle, activeOverlayTab, isHamburgerOpen, goals, settings]);
 
   const isOverlayOpen = activeOverlayTab !== null || isHamburgerOpen;
 
@@ -435,8 +625,14 @@ export default function App() {
               </span>
             </div>
 
-            {/* Right: PWA Install + View Mode Toggle (Grid/List) + Plus Button */}
+            {/* Right: Cloud Sync Badge + PWA Install + View Mode Toggle (Grid/List) + Plus Button */}
             <div className="flex items-center gap-2">
+              <CloudSyncStatusBadge
+                user={currentUser}
+                authLoading={authLoading}
+                syncStatus={cloudSyncStatus}
+                theme={currentTheme}
+              />
               <PWAInstallButton variant="compact" />
 
               <div className={`flex items-center border ${currentTheme.border} rounded-lg p-0.5 ${currentTheme.bgSubtle}`}>
@@ -502,19 +698,20 @@ export default function App() {
                         if (e.key === 'Enter') handleSaveHeaderTitle();
                         if (e.key === 'Escape') setIsEditingHeaderTitle(false);
                       }}
+                      onBlur={handleSaveHeaderTitle}
                       autoFocus
                       placeholder="Goal title..."
                       className={`text-xs font-semibold px-2 py-0.5 rounded border border-blue-500 bg-black/40 outline-none ${currentTheme.textPrimary} max-w-[150px] sm:max-w-[260px]`}
                     />
                     <button
-                      onClick={handleSaveHeaderTitle}
+                      onMouseDown={handleSaveHeaderTitle}
                       className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white cursor-pointer"
                       title="Save Title (Enter)"
                     >
                       <Check className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => setIsEditingHeaderTitle(false)}
+                      onMouseDown={() => setIsEditingHeaderTitle(false)}
                       className={`p-1 rounded ${currentTheme.bgSubtle} ${currentTheme.textSecondary} cursor-pointer`}
                       title="Cancel (Esc)"
                     >
@@ -539,8 +736,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right: Saved Indicator + Menu */}
+            {/* Right: Cloud Sync + Saved Indicator + Menu */}
             <div className="flex items-center gap-2.5">
+              <CloudSyncStatusBadge
+                user={currentUser}
+                authLoading={authLoading}
+                syncStatus={cloudSyncStatus}
+                theme={currentTheme}
+              />
               {lastSavedNotice && (
                 <span className="text-emerald-400 text-[11px] flex items-center gap-1">
                   <Check className="w-3 h-3" />
@@ -579,8 +782,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right: Grid/List Toggle + Plus Button */}
+            {/* Right: Cloud Sync + Grid/List Toggle + Plus Button */}
             <div className="flex items-center gap-2">
+              <CloudSyncStatusBadge
+                user={currentUser}
+                authLoading={authLoading}
+                syncStatus={cloudSyncStatus}
+                theme={currentTheme}
+              />
               <div className={`flex items-center border ${currentTheme.border} rounded-lg p-0.5 ${currentTheme.bgSubtle}`}>
                 <button
                   onClick={() => setTenXViewMode('tabular')}
@@ -609,7 +818,7 @@ export default function App() {
               </div>
 
               <button
-                onClick={handleCreateTenXGoal}
+                onClick={() => handleCreateTenXGoal()}
                 className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs flex items-center justify-center shadow-xs transition-colors cursor-pointer"
                 title="New 10X Goal"
                 aria-label="New 10X Goal"
@@ -650,19 +859,20 @@ export default function App() {
                         if (e.key === 'Enter') handleSaveHeaderTitle();
                         if (e.key === 'Escape') setIsEditingHeaderTitle(false);
                       }}
+                      onBlur={handleSaveHeaderTitle}
                       autoFocus
                       placeholder="10X Goal title..."
                       className={`text-xs font-semibold px-2 py-0.5 rounded border border-emerald-500 bg-black/40 outline-none ${currentTheme.textPrimary} max-w-[150px] sm:max-w-[260px]`}
                     />
                     <button
-                      onClick={handleSaveHeaderTitle}
+                      onMouseDown={handleSaveHeaderTitle}
                       className="p-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
                       title="Save Title (Enter)"
                     >
                       <Check className="w-3 h-3" />
                     </button>
                     <button
-                      onClick={() => setIsEditingHeaderTitle(false)}
+                      onMouseDown={() => setIsEditingHeaderTitle(false)}
                       className={`p-1 rounded ${currentTheme.bgSubtle} ${currentTheme.textSecondary} cursor-pointer`}
                       title="Cancel (Esc)"
                     >
@@ -687,8 +897,14 @@ export default function App() {
               </div>
             </div>
 
-            {/* Right: Only subtle saved checkmark, no clutter */}
+            {/* Right: Cloud Sync + subtle saved checkmark */}
             <div className="flex items-center gap-2.5">
+              <CloudSyncStatusBadge
+                user={currentUser}
+                authLoading={authLoading}
+                syncStatus={cloudSyncStatus}
+                theme={currentTheme}
+              />
               {lastSavedNotice && (
                 <span className="text-emerald-400 text-[11px] flex items-center gap-1">
                   <Check className="w-3 h-3" />
@@ -711,8 +927,9 @@ export default function App() {
               setActiveGoalId(id);
               setCurrentMainView('today_editor');
             }}
-            onCreateGoal={handleCreateGoal}
+            onCreateGoal={() => handleCreateGoal()}
             onUpdateGoal={handleUpdateGoal}
+            onSwitchToTenX={() => setCurrentMainView('tenx_goals')}
           />
         ) : currentMainView === 'today_editor' ? (
           activeGoal?.type === 'battle_plan' ? (
@@ -732,6 +949,7 @@ export default function App() {
               onUpdateGoal={handleUpdateGoal}
               onOpenMenu={() => setIsHamburgerOpen(true)}
               isOverlayOpen={isOverlayOpen}
+              onRecordSession={handleRecordSession}
             />
           )
         ) : currentMainView === 'tenx_goals' ? (
@@ -744,8 +962,9 @@ export default function App() {
               setActiveGoalId(id);
               setCurrentMainView('tenx_editor');
             }}
-            onCreateTenXGoal={handleCreateTenXGoal}
+            onCreateTenXGoal={() => handleCreateTenXGoal()}
             onUpdateGoal={handleUpdateGoal}
+            onSwitchToTodaysGoals={() => setCurrentMainView('todays_goals')}
           />
         ) : currentMainView === 'tenx_editor' && activeGoal ? (
           <TenXGoalEditor
@@ -766,8 +985,9 @@ export default function App() {
               setActiveGoalId(id);
               setCurrentMainView('today_editor');
             }}
-            onCreateGoal={handleCreateGoal}
+            onCreateGoal={() => handleCreateGoal()}
             onUpdateGoal={handleUpdateGoal}
+            onSwitchToTenX={() => setCurrentMainView('tenx_goals')}
           />
         )}
       </main>
@@ -808,6 +1028,9 @@ export default function App() {
         settings={settings}
         theme={currentTheme}
         consistencyStats={consistencyStats}
+        user={currentUser}
+        authLoading={authLoading}
+        syncStatus={cloudSyncStatus}
         onSelectGoal={(id) => {
           setActiveGoalId(id);
           const clickedGoal = goals.find((g) => g.id === id);

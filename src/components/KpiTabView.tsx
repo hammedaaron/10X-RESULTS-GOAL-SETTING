@@ -226,7 +226,7 @@ export const KpiTabView: React.FC<KpiTabViewProps> = ({
             >
               {battlePlans.map((bp) => (
                 <option key={bp.id} value={bp.id}>
-                  {bp.title} ({bp.progress}%)
+                  {bp.title || 'Untitled Battle Plan'} ({bp.progress}%)
                 </option>
               ))}
             </select>
@@ -236,9 +236,19 @@ export const KpiTabView: React.FC<KpiTabViewProps> = ({
         {activePlan && activePlan.battlePlanItems && activePlan.battlePlanItems.length > 0 ? (
           <div>
             <div className="flex items-center justify-between text-xs mb-3">
-              <span className={`font-medium ${theme.textPrimary}`}>
-                {activePlan.title}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`font-semibold ${theme.textPrimary}`}>
+                  {activePlan.title || 'Untitled Battle Plan'}
+                </span>
+                {onSelectGoal && (
+                  <button
+                    onClick={() => onSelectGoal(activePlan.id)}
+                    className="text-[11px] text-blue-400 hover:underline cursor-pointer"
+                  >
+                    Open Plan →
+                  </button>
+                )}
+              </div>
               <span className="text-emerald-400 font-semibold tabular-nums">
                 {activePlan.battlePlanItems.filter((i) => i.completed).length} of{' '}
                 {activePlan.battlePlanItems.length} Tasks Completed ({activePlan.progress}%)

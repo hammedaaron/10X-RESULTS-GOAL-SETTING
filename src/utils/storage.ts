@@ -1,4 +1,5 @@
-import { GoalNote, UserSettings } from '../types';
+import { GoalNote, UserSettings, GoalSessionLog, BattlePlanItem } from '../types';
+import { idbGet, idbSet, requestPersistentStorage } from './indexedDb';
 
 const STORAGE_KEY_GOALS = 'objectivenote_goals_v2';
 const STORAGE_KEY_SETTINGS = 'objectivenote_settings_v2';
@@ -11,6 +12,152 @@ export const DEFAULT_SETTINGS: UserSettings = {
   consistencyDailyTarget: 2, // at least 2x per day as requested
   autoSave: true,
 };
+
+// Request durable browser storage permissions on load
+if (typeof window !== 'undefined') {
+  requestPersistentStorage().catch(() => {});
+}
+
+// Deeply sanitize and serialize a single GoalNote, stripping any DOM nodes, events, or non-primitives
+export function sanitizeGoal(raw: unknown): GoalNote | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const g = raw as Record<string, unknown>;
+
+  // Ensure id is clean string
+  const id =
+    typeof g.id === 'string' && g.id.trim()
+      ? g.id.trim()
+      : `goal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+  // Type definition
+  const type =
+    g.type === 'battle_plan' || g.type === 'tenx_goal' ? g.type : 'goal';
+
+  // Title: strictly string, never an object or element
+  let title = 'Untitled Goal';
+  if (typeof g.title === 'string' && g.title.trim()) {
+    title = g.title.trim();
+  } else if (type === 'tenx_goal') {
+    title = '10X Moonshot Target';
+  } else if (type === 'battle_plan') {
+    title = "Today's Battle Plan";
+  } else {
+    title = "Today's Goal Objective";
+  }
+
+  // Month and target date: strictly strings
+  const now = new Date();
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const defaultMonth = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+  const defaultMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+  const month =
+    typeof g.month === 'string' && g.month.trim() ? g.month.trim() : defaultMonth;
+  const monthKey =
+    typeof g.monthKey === 'string' && g.monthKey.trim() ? g.monthKey.trim() : defaultMonthKey;
+  const targetDate =
+    typeof g.targetDate === 'string' && g.targetDate.trim() ? g.targetDate.trim() : undefined;
+
+  const createdAt =
+    typeof g.createdAt === 'string' && g.createdAt.trim()
+      ? g.createdAt.trim()
+      : now.toISOString();
+  const updatedAt =
+    typeof g.updatedAt === 'string' && g.updatedAt.trim()
+      ? g.updatedAt.trim()
+      : now.toISOString();
+
+  const progress =
+    typeof g.progress === 'number' && !isNaN(g.progress)
+      ? Math.max(0, Math.min(100, Math.round(g.progress)))
+      : 0;
+
+  const status =
+    g.status === 'achieved' || g.status === 'needs_attention' || g.status === 'in_progress'
+      ? g.status
+      : 'in_progress';
+
+  const category =
+    typeof g.category === 'string' && g.category.trim() ? g.category.trim() : 'General';
+  const contentHtml =
+    typeof g.contentHtml === 'string' ? g.contentHtml : '';
+  const plainText =
+    typeof g.plainText === 'string' ? g.plainText : '';
+  const deletedAt =
+    typeof g.deletedAt === 'string' && g.deletedAt.trim() ? g.deletedAt.trim() : null;
+  const isMoonshot = Boolean(g.isMoonshot || type === 'tenx_goal');
+
+  // Sanitize sessionsLog
+  const sessionsLog: GoalSessionLog[] = [];
+  if (Array.isArray(g.sessionsLog)) {
+    for (const item of g.sessionsLog) {
+      if (item && typeof item === 'object') {
+        const s = item as Record<string, unknown>;
+        sessionsLog.push({
+          timestamp: typeof s.timestamp === 'string' ? s.timestamp : now.toISOString(),
+          sessionType: s.sessionType === 'morning' || s.sessionType === 'evening' ? s.sessionType : 'morning',
+          note: typeof s.note === 'string' ? s.note : '',
+        });
+      }
+    }
+  }
+
+  // Sanitize battlePlanItems
+  let battlePlanItems: BattlePlanItem[] | undefined;
+  if (Array.isArray(g.battlePlanItems)) {
+    battlePlanItems = [];
+    for (const item of g.battlePlanItems) {
+      if (item && typeof item === 'object') {
+        const b = item as Record<string, unknown>;
+        battlePlanItems.push({
+          id: typeof b.id === 'string' ? b.id : `bpi-${Math.random().toString(36).slice(2, 7)}`,
+          text: typeof b.text === 'string' ? b.text : '',
+          completed: Boolean(b.completed),
+          completedAt: typeof b.completedAt === 'string' ? b.completedAt : undefined,
+        });
+      }
+    }
+  }
+
+  const clean: GoalNote = {
+    id,
+    type,
+    title,
+    month,
+    monthKey,
+    createdAt,
+    updatedAt,
+    progress,
+    status,
+    category,
+    sessionsLog,
+    contentHtml,
+    plainText,
+    deletedAt,
+    isMoonshot,
+  };
+
+  if (targetDate) clean.targetDate = targetDate;
+  if (battlePlanItems) clean.battlePlanItems = battlePlanItems;
+
+  return clean;
+}
+
+// Clean and sanitize an array of goals safely
+export function sanitizeGoals(rawGoals: unknown[]): GoalNote[] {
+  if (!Array.isArray(rawGoals)) return [];
+  const results: GoalNote[] = [];
+  for (const item of rawGoals) {
+    const cleaned = sanitizeGoal(item);
+    if (cleaned) {
+      results.push(cleaned);
+    }
+  }
+  return results;
+}
 
 // Clean fresh starter goal (no prefilled templated wordings, ready for user writing)
 export function createCleanInitialGoal(): GoalNote {
@@ -25,7 +172,7 @@ export function createCleanInitialGoal(): GoalNote {
   return {
     id: `goal-${Date.now()}`,
     type: 'goal',
-    title: 'My First Goal Objective',
+    title: "Today's Goal Objective",
     month: currentMonth,
     monthKey: currentMonthKey,
     createdAt: now.toISOString(),
@@ -37,6 +184,7 @@ export function createCleanInitialGoal(): GoalNote {
     contentHtml: '',
     plainText: '',
     deletedAt: null,
+    isMoonshot: false,
   };
 }
 
@@ -96,7 +244,7 @@ export const DOCUMENTATION_TEMPLATES = [
   },
 ];
 
-// Persistent load: never resurrects deleted items once user is active
+// Persistent synchronous load from localStorage with sanitization
 export function loadStoredGoals(): GoalNote[] {
   try {
     const isInitialized = localStorage.getItem(STORAGE_KEY_INITIALIZED);
@@ -105,15 +253,14 @@ export function loadStoredGoals(): GoalNote[] {
     if (raw !== null) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        return parsed;
+        return sanitizeGoals(parsed);
       }
     }
 
     // First time ever opening app: initialize with 1 clean empty goal
     if (!isInitialized) {
       const cleanStarter = [createCleanInitialGoal()];
-      localStorage.setItem(STORAGE_KEY_INITIALIZED, 'true');
-      localStorage.setItem(STORAGE_KEY_GOALS, JSON.stringify(cleanStarter));
+      saveStoredGoals(cleanStarter);
       return cleanStarter;
     }
 
@@ -125,13 +272,36 @@ export function loadStoredGoals(): GoalNote[] {
   }
 }
 
-// Persistent save: guarantees immediate synchronous persistence
+// Durable recovery: inspects IndexedDB in case localStorage was wiped or cleared by the browser
+export async function recoverDurableGoals(): Promise<GoalNote[] | null> {
+  try {
+    const fromIdb = await idbGet<unknown[]>(STORAGE_KEY_GOALS);
+    if (Array.isArray(fromIdb) && fromIdb.length > 0) {
+      const cleaned = sanitizeGoals(fromIdb);
+      if (cleaned.length > 0) {
+        return cleaned;
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to recover from durable IndexedDB storage:', err);
+  }
+  return null;
+}
+
+// Guaranteed dual-write persistence: saves to localStorage immediately and IndexedDB for durable recovery
 export function saveStoredGoals(goals: GoalNote[]): void {
   try {
+    const cleanList = sanitizeGoals(goals);
+    const serialized = JSON.stringify(cleanList);
     localStorage.setItem(STORAGE_KEY_INITIALIZED, 'true');
-    localStorage.setItem(STORAGE_KEY_GOALS, JSON.stringify(goals));
+    localStorage.setItem(STORAGE_KEY_GOALS, serialized);
+
+    // Asynchronously save to IndexedDB durable backup store
+    idbSet(STORAGE_KEY_GOALS, cleanList).catch((err) => {
+      console.warn('IndexedDB async backup save warning:', err);
+    });
   } catch (err) {
-    console.error('Failed to save goals to localStorage', err);
+    console.error('Failed to save goals to storage', err);
   }
 }
 
@@ -147,7 +317,18 @@ export function loadStoredSettings(): UserSettings {
 
 export function saveStoredSettings(settings: UserSettings): void {
   try {
-    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(settings));
+    const clean = {
+      theme: settings.theme || DEFAULT_SETTINGS.theme,
+      fontFamily: settings.fontFamily || DEFAULT_SETTINGS.fontFamily,
+      fontSize: typeof settings.fontSize === 'number' ? settings.fontSize : DEFAULT_SETTINGS.fontSize,
+      consistencyDailyTarget:
+        typeof settings.consistencyDailyTarget === 'number'
+          ? settings.consistencyDailyTarget
+          : DEFAULT_SETTINGS.consistencyDailyTarget,
+      autoSave: Boolean(settings.autoSave),
+    };
+    localStorage.setItem(STORAGE_KEY_SETTINGS, JSON.stringify(clean));
+    idbSet(STORAGE_KEY_SETTINGS, clean).catch(() => {});
   } catch (err) {
     console.error('Failed to save settings to localStorage', err);
   }
@@ -155,10 +336,15 @@ export function saveStoredSettings(settings: UserSettings): void {
 
 // Export backup to JSON file
 export function exportGoalsBackupJSON(goals: GoalNote[], settings: UserSettings): string {
-  return JSON.stringify({
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    goals,
-    settings,
-  }, null, 2);
+  const cleanList = sanitizeGoals(goals);
+  return JSON.stringify(
+    {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      goals: cleanList,
+      settings,
+    },
+    null,
+    2
+  );
 }
