@@ -12,6 +12,28 @@ import { sanitizeGoal, sanitizeGoals } from './storage';
 
 export type CloudSyncStatus = 'offline' | 'unauthenticated' | 'syncing' | 'synced' | 'error';
 
+// Recursively strip any undefined values so Firestore setDoc never throws unsupported field value
+export function cleanPayloadForFirestore<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as unknown as T;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => cleanPayloadForFirestore(item)) as unknown as T;
+  }
+  if (typeof data === 'object' && data !== null) {
+    const cleaned: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(data as Record<string, unknown>)) {
+      if (val !== undefined) {
+        cleaned[key] = cleanPayloadForFirestore(val);
+      }
+    }
+    return cleaned as unknown as T;
+  }
+  return data;
+}
+
 // Save single goal to user's Firestore cloud subcollection
 export async function saveGoalToCloud(user: User, goal: GoalNote): Promise<void> {
   const clean = sanitizeGoal(goal);
@@ -20,11 +42,12 @@ export async function saveGoalToCloud(user: User, goal: GoalNote): Promise<void>
   const path = `users/${user.uid}/goals/${clean.id}`;
   try {
     const docRef = doc(db, 'users', user.uid, 'goals', clean.id);
-    const payload = {
+    const rawPayload = {
       ...clean,
       userId: user.uid,
       updatedAt: new Date().toISOString(),
     };
+    const payload = cleanPayloadForFirestore(rawPayload);
     await setDoc(docRef, payload, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
@@ -55,19 +78,18 @@ export async function saveSettingsToCloud(user: User, settings: UserSettings): P
   const path = `users/${user.uid}/settings/user_settings`;
   try {
     const docRef = doc(db, 'users', user.uid, 'settings', 'user_settings');
-    await setDoc(
-      docRef,
-      {
-        userId: user.uid,
-        theme: settings.theme,
-        fontFamily: settings.fontFamily,
-        fontSize: settings.fontSize,
-        consistencyDailyTarget: settings.consistencyDailyTarget,
-        autoSave: settings.autoSave,
-        updatedAt: new Date().toISOString(),
-      },
-      { merge: true }
-    );
+    const rawPayload = {
+      userId: user.uid,
+      theme: settings.theme || 'dark_charcoal',
+      fontFamily: settings.fontFamily || 'sans',
+      fontSize: typeof settings.fontSize === 'number' ? settings.fontSize : 16,
+      consistencyDailyTarget:
+        typeof settings.consistencyDailyTarget === 'number' ? settings.consistencyDailyTarget : 2,
+      autoSave: settings.autoSave ?? true,
+      updatedAt: new Date().toISOString(),
+    };
+    const payload = cleanPayloadForFirestore(rawPayload);
+    await setDoc(docRef, payload, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
   }

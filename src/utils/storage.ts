@@ -112,12 +112,15 @@ export function sanitizeGoal(raw: unknown): GoalNote | null {
     for (const item of g.battlePlanItems) {
       if (item && typeof item === 'object') {
         const b = item as Record<string, unknown>;
-        battlePlanItems.push({
+        const planItem: BattlePlanItem = {
           id: typeof b.id === 'string' ? b.id : `bpi-${Math.random().toString(36).slice(2, 7)}`,
           text: typeof b.text === 'string' ? b.text : '',
           completed: Boolean(b.completed),
-          completedAt: typeof b.completedAt === 'string' ? b.completedAt : undefined,
-        });
+        };
+        if (typeof b.completedAt === 'string' && b.completedAt.trim()) {
+          planItem.completedAt = b.completedAt.trim();
+        }
+        battlePlanItems.push(planItem);
       }
     }
   }

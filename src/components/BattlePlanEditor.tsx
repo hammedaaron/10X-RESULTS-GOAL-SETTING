@@ -86,6 +86,17 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
       } else if (contentRef.current.innerHTML !== plan.contentHtml) {
         contentRef.current.innerHTML = plan.contentHtml;
       }
+      // Synchronize and harden all checkboxes in DOM
+      contentRef.current.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+        cb.setAttribute('contenteditable', 'false');
+        const isChecked = cb.hasAttribute('checked') || cb.checked;
+        cb.checked = isChecked;
+        const sibling = cb.nextElementSibling as HTMLElement | null;
+        if (sibling) {
+          sibling.style.textDecoration = isChecked ? 'line-through' : 'none';
+          sibling.style.opacity = isChecked ? '0.6' : '1';
+        }
+      });
       const { progress: calcProg, items } = analyzeContent();
       setProgress(calcProg);
       setChecklistReport(items);
@@ -152,25 +163,36 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
     });
   };
 
+  const handleCheckboxToggle = (cb: HTMLInputElement) => {
+    const isChecked = cb.checked;
+    if (isChecked) {
+      cb.setAttribute('checked', 'true');
+      if (cb.nextElementSibling) {
+        (cb.nextElementSibling as HTMLElement).style.textDecoration = 'line-through';
+        (cb.nextElementSibling as HTMLElement).style.opacity = '0.6';
+      }
+    } else {
+      cb.removeAttribute('checked');
+      if (cb.nextElementSibling) {
+        (cb.nextElementSibling as HTMLElement).style.textDecoration = 'none';
+        (cb.nextElementSibling as HTMLElement).style.opacity = '1';
+      }
+    }
+    handleContentInput();
+  };
+
   // Event handler for clicking checkboxes in contentEditable
   const handleContainerClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
     if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
-      const cb = target as HTMLInputElement;
-      if (cb.checked) {
-        cb.setAttribute('checked', 'true');
-        if (cb.nextElementSibling) {
-          (cb.nextElementSibling as HTMLElement).style.textDecoration = 'line-through';
-          (cb.nextElementSibling as HTMLElement).style.opacity = '0.6';
-        }
-      } else {
-        cb.removeAttribute('checked');
-        if (cb.nextElementSibling) {
-          (cb.nextElementSibling as HTMLElement).style.textDecoration = 'none';
-          (cb.nextElementSibling as HTMLElement).style.opacity = '1';
-        }
-      }
-      handleContentInput();
+      handleCheckboxToggle(target as HTMLInputElement);
+    }
+  };
+
+  const handleContainerChange = (e: React.FormEvent) => {
+    const target = e.target as HTMLElement;
+    if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+      handleCheckboxToggle(target as HTMLInputElement);
     }
   };
 
@@ -251,7 +273,7 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
           newItem.style.cssText =
             'display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;';
           newItem.innerHTML =
-            '<input type="checkbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;"><br></span>';
+            '<input type="checkbox" contenteditable="false" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;"><br></span>';
 
           checkItem.after(newItem);
           const newSpan = newItem.querySelector('span');
@@ -311,8 +333,16 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
   };
 
   const insertChecklistItem = () => {
-    const itemHtml = `<p class="checklist-item" style="display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;"><input type="checkbox" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;">New checklist item</span></p>`;
-    document.execCommand('insertHTML', false, itemHtml);
+    const itemHtml = `<p class="checklist-item" style="display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;"><input type="checkbox" contenteditable="false" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;">New checklist item</span></p>`;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && contentRef.current?.contains(sel.anchorNode)) {
+      document.execCommand('insertHTML', false, itemHtml);
+    } else if (contentRef.current) {
+      contentRef.current.innerHTML += itemHtml;
+    }
+    contentRef.current?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+      cb.setAttribute('contenteditable', 'false');
+    });
     handleContentInput();
   };
 
@@ -482,6 +512,7 @@ export const BattlePlanEditor: React.FC<BattlePlanEditorProps> = ({
           contentEditable
           suppressContentEditableWarning
           onClick={handleContainerClick}
+          onChange={handleContainerChange}
           onInput={handleContentInput}
           onKeyDown={handleKeyDown}
           className={`min-h-[75vh] w-full outline-none leading-relaxed transition-all ${getFontClass(

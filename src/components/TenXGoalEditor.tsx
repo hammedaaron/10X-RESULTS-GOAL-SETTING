@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sun, Moon, Check, Edit2 } from 'lucide-react';
+import { Sun, Moon, Check, Edit2, CheckSquare } from 'lucide-react';
 import { GoalNote, UserSettings } from '../types';
 import { ThemeStyles, getFontClass } from '../utils/theme';
 import { FloatingFormatMenu } from './FloatingFormatMenu';
@@ -37,6 +37,17 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
     }
     if (contentRef.current && contentRef.current.innerHTML !== (goal.contentHtml || '')) {
       contentRef.current.innerHTML = goal.contentHtml || '';
+      // Synchronize and harden all checkboxes in DOM
+      contentRef.current.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+        cb.setAttribute('contenteditable', 'false');
+        const isChecked = cb.hasAttribute('checked') || cb.checked;
+        cb.checked = isChecked;
+        const sibling = cb.nextElementSibling as HTMLElement | null;
+        if (sibling) {
+          sibling.style.textDecoration = isChecked ? 'line-through' : 'none';
+          sibling.style.opacity = isChecked ? '0.6' : '1';
+        }
+      });
     }
   }, [goal.id]);
 
@@ -82,6 +93,19 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
     const html = contentRef.current.innerHTML;
     const text = contentRef.current.innerText || '';
 
+    // Calculate progress if checklist items exist
+    const checkboxes = contentRef.current.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
+    let newProgress = goal.progress;
+    let newStatus = goal.status;
+    if (checkboxes.length > 0) {
+      let checkedCount = 0;
+      checkboxes.forEach((cb) => {
+        if (cb.checked) checkedCount++;
+      });
+      newProgress = Math.round((checkedCount / checkboxes.length) * 100);
+      newStatus = newProgress === 100 ? 'achieved' : newProgress > 0 ? 'in_progress' : goal.status;
+    }
+
     const updated: GoalNote = {
       ...goal,
       title,
@@ -89,9 +113,57 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
       isMoonshot: true,
       contentHtml: html,
       plainText: text,
+      progress: newProgress,
+      status: newStatus,
       updatedAt: new Date().toISOString(),
     };
     onUpdateGoal(updated);
+  };
+
+  const handleCheckboxToggle = (cb: HTMLInputElement) => {
+    const isChecked = cb.checked;
+    if (isChecked) {
+      cb.setAttribute('checked', 'true');
+      if (cb.nextElementSibling) {
+        (cb.nextElementSibling as HTMLElement).style.textDecoration = 'line-through';
+        (cb.nextElementSibling as HTMLElement).style.opacity = '0.6';
+      }
+    } else {
+      cb.removeAttribute('checked');
+      if (cb.nextElementSibling) {
+        (cb.nextElementSibling as HTMLElement).style.textDecoration = 'none';
+        (cb.nextElementSibling as HTMLElement).style.opacity = '1';
+      }
+    }
+    handleContentInput();
+  };
+
+  const handleContainerClick = (e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+      handleCheckboxToggle(target as HTMLInputElement);
+    }
+  };
+
+  const handleContainerChange = (e: React.FormEvent) => {
+    const target = e.target as HTMLElement;
+    if (target && target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'checkbox') {
+      handleCheckboxToggle(target as HTMLInputElement);
+    }
+  };
+
+  const insertChecklistItem = () => {
+    const itemHtml = `<p class="checklist-item" style="display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;"><input type="checkbox" contenteditable="false" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;">New 10X action item</span></p>`;
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && contentRef.current?.contains(sel.anchorNode)) {
+      document.execCommand('insertHTML', false, itemHtml);
+    } else if (contentRef.current) {
+      contentRef.current.innerHTML += itemHtml;
+    }
+    contentRef.current?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((cb) => {
+      cb.setAttribute('contenteditable', 'false');
+    });
+    handleContentInput();
   };
 
   const handleTriggerSession = (type: 'morning' | 'evening') => {
@@ -102,7 +174,7 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
     }
   };
 
-  // Keyboard shortcut handler for Bold/Italic/Underline/Undo/Redo/Save
+  // Keyboard shortcut handler for Bold/Italic/Underline/Undo/Redo/Save & Checklist navigation
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey) {
       if (e.key === 's' || e.key === 'S') {
@@ -137,9 +209,104 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
         handleContentInput();
       }
     }
+
+    // Checklist smart Enter: continues the checklist; on empty line, exits checklist into paragraph
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0) {
+        let node: Node | null = selection.anchorNode;
+        let checkItem: HTMLElement | null = null;
+
+        while (node && node !== contentRef.current) {
+          if (
+            node.nodeType === 1 &&
+            (node as HTMLElement).classList?.contains('checklist-item')
+          ) {
+            checkItem = node as HTMLElement;
+            break;
+          }
+          node = node.parentNode;
+        }
+
+        if (checkItem) {
+          e.preventDefault();
+          const span = checkItem.querySelector('span');
+
+          // If current item is empty, exit checklist into a normal paragraph
+          if (span && (!span.textContent || span.textContent.trim() === '')) {
+            const p = document.createElement('p');
+            p.innerHTML = '<br>';
+            checkItem.parentNode?.replaceChild(p, checkItem);
+            const range = document.createRange();
+            range.setStart(p, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            handleContentInput();
+            return;
+          }
+
+          // Continue checklist like a bulleted list!
+          const newItem = document.createElement('p');
+          newItem.className = 'checklist-item';
+          newItem.style.cssText =
+            'display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;';
+          newItem.innerHTML =
+            '<input type="checkbox" contenteditable="false" style="width: 18px; height: 18px; cursor: pointer; accent-color: #10b981; margin-top: 3px;" /><span style="flex: 1; outline: none;"><br></span>';
+
+          checkItem.after(newItem);
+          const newSpan = newItem.querySelector('span');
+          if (newSpan) {
+            const range = document.createRange();
+            range.setStart(newSpan, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+          }
+          handleContentInput();
+        }
+      }
+    } else if (e.key === 'Backspace') {
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0 && selection.isCollapsed) {
+        let node: Node | null = selection.anchorNode;
+        let checkItem: HTMLElement | null = null;
+
+        while (node && node !== contentRef.current) {
+          if (
+            node.nodeType === 1 &&
+            (node as HTMLElement).classList?.contains('checklist-item')
+          ) {
+            checkItem = node as HTMLElement;
+            break;
+          }
+          node = node.parentNode;
+        }
+
+        if (checkItem) {
+          const span = checkItem.querySelector('span');
+          if (span && (!span.textContent || span.textContent.trim() === '')) {
+            e.preventDefault();
+            const p = document.createElement('p');
+            p.innerHTML = '<br>';
+            checkItem.parentNode?.replaceChild(p, checkItem);
+            const range = document.createRange();
+            range.setStart(p, 0);
+            range.collapse(true);
+            selection.removeAllRanges();
+            selection.addRange(range);
+            handleContentInput();
+          }
+        }
+      }
+    }
   };
 
   const handleFloatingCommand = (cmd: string, val?: string) => {
+    if (cmd === 'insertChecklist') {
+      insertChecklistItem();
+      return;
+    }
     document.execCommand(cmd, false, val);
     handleContentInput();
   };
@@ -200,37 +367,52 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
             </div>
           </div>
 
-          {/* Session Recording Button */}
-          {onRecordSession && (
-            <div className="flex items-center gap-2">
-              {sessionSuccessNotice ? (
-                <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 animate-fadeIn">
-                  <Check className="w-3.5 h-3.5" />
-                  {sessionSuccessNotice}
-                </span>
-              ) : (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => handleTriggerSession('morning')}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-500/30 ${theme.bgSubtle} text-emerald-400 hover:bg-emerald-500/10 text-xs font-medium transition-colors cursor-pointer`}
-                    title="Log morning 10X alignment write"
-                  >
-                    <Sun className="w-3.5 h-3.5" />
-                    <span>Morning 10X</span>
-                  </button>
+          {/* Actions & Session Recording: Morning/Evening 10X and + Checklist */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                insertChecklistItem();
+              }}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-500/30 ${theme.bgSubtle} text-emerald-400 hover:bg-emerald-500/10 text-xs font-medium transition-colors cursor-pointer`}
+              title="Insert 10X action checklist item"
+            >
+              <CheckSquare className="w-3.5 h-3.5" />
+              <span>+ Checklist</span>
+            </button>
 
-                  <button
-                    onClick={() => handleTriggerSession('evening')}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-500/30 ${theme.bgSubtle} text-emerald-400 hover:bg-emerald-500/10 text-xs font-medium transition-colors cursor-pointer`}
-                    title="Log evening 10X review write"
-                  >
-                    <Moon className="w-3.5 h-3.5" />
-                    <span>Evening 10X</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+            {onRecordSession && (
+              <>
+                {sessionSuccessNotice ? (
+                  <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5 animate-fadeIn">
+                    <Check className="w-3.5 h-3.5" />
+                    {sessionSuccessNotice}
+                  </span>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleTriggerSession('morning')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-500/30 ${theme.bgSubtle} text-emerald-400 hover:bg-emerald-500/10 text-xs font-medium transition-colors cursor-pointer`}
+                      title="Log morning 10X alignment write"
+                    >
+                      <Sun className="w-3.5 h-3.5" />
+                      <span>Morning 10X</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleTriggerSession('evening')}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-500/30 ${theme.bgSubtle} text-emerald-400 hover:bg-emerald-500/10 text-xs font-medium transition-colors cursor-pointer`}
+                      title="Log evening 10X review write"
+                    >
+                      <Moon className="w-3.5 h-3.5" />
+                      <span>Evening 10X</span>
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
 
         {/* Pure Text Writing Area: Fills full height without restrictions */}
@@ -238,6 +420,8 @@ export const TenXGoalEditor: React.FC<TenXGoalEditorProps> = ({
           ref={contentRef}
           contentEditable
           suppressContentEditableWarning
+          onClick={handleContainerClick}
+          onChange={handleContainerChange}
           onInput={handleContentInput}
           onKeyDown={handleKeyDown}
           className={`min-h-[75vh] w-full outline-none leading-relaxed transition-all ${getFontClass(
